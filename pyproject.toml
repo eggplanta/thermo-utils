@@ -1,0 +1,21 @@
+[project]
+name = "thermo-utils"
+version = "0.1.0"
+description = "A simple and useful package for thermodynamics"
+
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "typer (>=0.20.0,<0.21.0)"
+]
+
+[tool.poetry]
+packages = [{include = "thermo_utils", from = "src"}]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+thermo-utils = "thermo_utils.cli:cli"
+
