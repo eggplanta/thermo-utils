@@ -6,7 +6,8 @@ description = "A simple and useful package for thermodynamics"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "typer (>=0.20.0,<0.21.0)"
+    "typer (>=0.20.0,<0.21.0)",
+    "colorama (>=0.4.6,<0.5.0)"
 ]
 
 [tool.poetry]
