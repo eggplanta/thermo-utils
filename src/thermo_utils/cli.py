@@ -16,7 +16,7 @@ LOGO = r"""
 """
 VERSION = "version 0.1.0"
 MESSAGE = "This program uses bar, cm³, mol and K.\nPlease type your input values using these units.\n\n"
-COMMANDS = "Type a number:\n\n1 - PVT calculus (ideal gases equation)\n2 - PVT calculus (virial equation)\n3 - PVT calculus (Peng-Robinson equation)\n4 - Fugacity\n5 - Activity coefficient\n6 - Margules parameters using experimental data (T constant)\n0 - Exit"
+COMMANDS = "Type a number:\n\n1 - PVT calculus (ideal gases equation)\n2 - PVT calculus (virial equation)\n3 - PVT calculus (Peng-Robinson equation)\n4 - Fugacity (pure substance)\n5 - Fugacity (mix of two components)\n6 - Activity coefficient (pure substance)\n7 - Activity coefficient (mix of two components)\n8 - Margules parameters using experimental data (T constant)\n0 - Exit"
 
 CSI = "\033["
 RESET = "\033[0m"
@@ -88,33 +88,80 @@ def cli():
             print("Leave empty the one you want to calculate:")
             print("(V in cm³/mol)\n")
             P=read_float("P: ")
-            V=read_float("v: ")
+            V=read_float("V: ")
             T=read_float("T: ")
-            PVTideal(P,V,T)
+            pvtIdeal(P,V,T)
         elif a == 2:
             print("Leave empty the one you want to calculate:")
             print("(V in cm³/mol)\n")
             P=read_float("P: ")
-            V=read_float("v: ")
+            V=read_float("V: ")
             T=read_float("T: ")
             Pc=read_float("Pc: ")
             Tc=read_float("Tc: ")
             Omega=read_float("Acentric factor: ")
+            pvtVirial(P,V,T,Pc,Tc,Omega)
         elif a == 3:
             print("Leave empty the one you want to calculate:")
             print("(V in cm³/mol)\n")
             P=read_float("P: ")
-            V=read_float("v: ")
+            V=read_float("V: ")
             T=read_float("T: ")
             Pc=read_float("Pc: ")
             Tc=read_float("Tc: ")
             Omega=read_float("Acentric factor: ")
+            pvtPengRobinson(P,V,T,Pc,Tc,Omega)
         elif a == 4:
-            print("Fugacity selected.\n")
+            P=read_float("P: ")
+            T=read_float("T: ")
+            Pc=read_float("Pc: ")
+            Tc=read_float("Tc: ")
+            Omega=read_float("Acentric factor: ")
+            fugacity(P,T,Pc,Tc,Omega)
         elif a == 5:
-            print("Activity coefficient selected.\n")
+            P=read_float("P: ")
+            T=read_float("T: ")
+            Pc1=read_float("Pc of the component A: ")
+            Tc1=read_float("Tc of the component A: ")
+            Omega1=read_float("Acentric factor of the component A: ")
+            Y1=read_float("Gas fraction of the component A (0-1): ")
+            Pc2=read_float("Pc of the component B: ")
+            Tc2=read_float("Tc of the component B: ")
+            Omega2=read_float("Acentric factor of the component B: ")
+            fugacityMix(P,T,Pc1,Tc1,Omega1,Y1,Pc1,Tc1,Omega2)
         elif a == 6:
-            print("Margules parameters selected.\n")
+            P=read_float("P: ")
+            T=read_float("T: ")
+            Pc1=read_float("Pc of the component A: ")
+            Tc1=read_float("Tc of the component A: ")
+            Omega1=read_float("Acentric factor of the component A: ")
+            Y1=read_float("Gas fraction of the component A (0-1): ")
+            Pc2=read_float("Pc of the component B: ")
+            Tc2=read_float("Tc of the component B: ")
+            Omega2=read_float("Acentric factor of the component B: ")
+            activity(P,T,Pc1,Tc1,Omega1,Y1,Pc1,Tc1,Omega2)
+        elif a == 7:
+            P=read_float("P: ")
+            T=read_float("T: ")
+            Pc1=read_float("Pc of the component A: ")
+            Tc1=read_float("Tc of the component A: ")
+            Omega1=read_float("Acentric factor of the component A: ")
+            Y1=read_float("Gas fraction of the component A (0-1): ")
+            Pc2=read_float("Pc of the component B: ")
+            Tc2=read_float("Tc of the component B: ")
+            Omega2=read_float("Acentric factor of the component B: ")
+            activityMix(P,T,Pc1,Tc1,Omega1,Y1,Pc1,Tc1,Omega2)
+        elif a == 8:
+            T=read_float("T: ")
+            Pc1=read_float("Pc of the component A: ")
+            Tc1=read_float("Tc of the component A: ")
+            Omega1=read_float("Acentric factor of the component A: ")
+            Pc2=read_float("Pc of the component B: ")
+            Tc2=read_float("Tc of the component B: ")
+            Omega2=read_float("Acentric factor of the component B: ")
+            print("Import a CSV file with the experimental data (P,x1,y1) sending its path. Example: C:/Users/Daniel/Documents/experimental_data.csv\n")
+            csv_path = input("Path: ")
+            margules(T,Pc1,Tc1,Omega1,Pc2,Tc2,Omega2,csv_path)
         elif a == 0:
             break
         else:
