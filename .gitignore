@@ -1,0 +1,12 @@
+.venv/
+venv/
+
+__pycache__/
+*.pyc
+
+dist/
+build/
+
+poetry.lock
+
+tests/
