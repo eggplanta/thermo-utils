@@ -1,22 +1,24 @@
+import os
 import shutil
 import sys
-from colorama import init
-init()
-from thermo_utils import calc
+import warnings
+from contextlib import contextmanager
+from typing import List, Optional
+
+import typer
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+
+from thermo_utils import __version__, calcs, equations, plots
+from thermo_utils.units import DEFAULT_INPUT_UNITS, display, units_of
+
+warnings.filterwarnings("ignore")
+console = Console(highlight=False)
+app = typer.Typer(add_completion=False, help="Thermodynamics calculator for chemical engineering.")
 
 LOGO = r"""
-              (        )  (        )      (          )    
-   )   (      )\    ( /(  )\    ( /(      )\ )     (/(   )
-  (\   ))\   ( ((   )\())((_)  ))\(_\  ( ((_)(   )\ )\  ((
-   (-)_) )\ )\/_ )\((_)\ (_ )\)(_)\(()/  )\ _((_))((_)| \_)-)\
-   / /_/ /(_|))_))((_)_((_))_((_) (_)\ \) ) ))((_))/ /(_)/ /\__)
-  / __/ __ \/ _ \/ ___/ __ `__ \/ __ \_(\/__/ / / / __/ / / ___/
-/ /_/ / / /  __/ /  / / / / / / /_/ /_____/ /_/ / /_/ / (__  )
-\__/_/ /_/\___/_/  /_/ /_/ /_/\____/      \__,_/\__/_/_/____/
-"""
-
-LOGO = r"""
-           (        )  (        )      (          )    
+           (        )  (        )      (          )
   )  (     )\    ( /(  )\    ( /(      )\ )     (/(   )
    _/(_))(  ( (()   )\())((_)  ))\(_)  ( ((_)(   )\ )\  (()  )
    / /_/ /) )\/_ )\((_)\_(_ )\_(_)\_()\  )\ (_(-))(/ /(_)/ /\(\_
@@ -24,260 +26,308 @@ LOGO = r"""
 / /_/ / / /  __/ /  / / / / / / /_/ /_____/ /_/ / /_/ / (__  )
 \__/_/ /_/\___/_/  /_/ /_/ /_/\____/      \__,_/\__/_/_/____/
 """
-VERSION = "version 0.1.0"
-MESSAGE = "This program uses bar, cm³, mol and K.\nPlease type your input values using these units.\n\n"
-COMMANDS = "Type a number:\n\n1 - PVT calculus (ideal gases equation)\n2 - PVT calculus (virial equation)\n3 - PVT calculus (Peng-Robinson equation)\n4 - Fugacity (pure substance)\n5 - Fugacity (mix of two components)\n6 - Activity coefficient (pure substance)\n7 - Activity coefficient (mix of two components)\n8 - Margules parameters using experimental data (T constant)\n0 - Exit"
 
-CSI = "\033["
-RESET = "\033[0m"
+COLORS = [(255, 220, 80), (255, 150, 40), (230, 70, 30), (180, 40, 50)]
+ACCENT = "rgb(255,150,40)"
 
-COLORS = [
-    (255, 220, 80),   # yellow
-    (255, 150, 40),   # orange
-    (230, 70, 30),    # red-orange
-    (180, 40, 50),    # dark red
-]
 
-def lerp(a, b, t):
-    return int(a + (b - a) * t)
+# Logo
 
-def get_color(t):
-    # t = 0..1
+def _gradient(t):
     g = len(COLORS) - 1
-    i = int(t * g)
-    if i >= g:
-        return COLORS[-1]
-    a = COLORS[i]
-    b = COLORS[i + 1]
+    i = min(int(t * g), g - 1)
+    a, b = COLORS[i], COLORS[i + 1]
     f = t * g - i
-    return tuple(lerp(a[k], b[k], f) for k in range(3))
+    return tuple(int(a[k] + (b[k] - a[k]) * f) for k in range(3))
 
-def colorize(art):
-    lines = art.splitlines()
-    h = len(lines)
-    out = []
-    for i, line in enumerate(lines):
-        t = i / max(1, h - 1)
-        r, g, b = get_color(t)
-        color = f"{CSI}38;2;{r};{g};{b}m"
-        new_line = "".join(color + ch + RESET if ch != " " else " " for ch in line)
-        out.append(new_line)
-    return "\n".join(out)
 
-def center_text(text: str) -> str:
+def print_logo():
     width = shutil.get_terminal_size().columns
-    lines = text.split("\n")
-    return "\n".join(line.center(width) for line in lines)
-                        
-                         #LOGO#
-#===========================================================#
-                         #CLI#
-
-def read_float(prompt):
-    value = input(prompt)
-    if value.strip() == "":    
-        return None
-    return float(value)
+    lines = LOGO.strip("\n").splitlines()
+    pad = max(0, (width - max(len(l) for l in lines)) // 2)
+    for i, line in enumerate(lines):
+        r, g, b = _gradient(i / max(1, len(lines) - 1))
+        console.print(" " * pad + line, style=f"rgb({r},{g},{b})", markup=False)
+    console.print(f"version {__version__}".center(width), style="dim")
 
 
-def cli():
-   
-    centered_logo = center_text(LOGO)
-    centered_colorized_logo = colorize(centered_logo)
-    print(centered_colorized_logo)
-    print(center_text(VERSION))
-    print("\n")
-    print((MESSAGE))
-    
+# Output
+
+def show_equations(lines):
+    if lines:
+        body = "\n".join(lines)
+        console.print(Panel(body, title="[b]Equations[/b]", title_align="left", border_style="dim"))
+
+
+def show_result(res, calc=None):
+    if calc is not None:
+        show_equations(equations.for_calc(calc.id, res.model))
+    for heading, rows in res.sections:
+        table = Table(show_header=False, box=None, padding=(0, 2))
+        table.add_column(style="bold")
+        table.add_column()
+        for label, value in rows:
+            table.add_row(label, value)
+        console.print(Panel(table, title=f"[b]{heading}[/b]", title_align="left", border_style=ACCENT))
+    for note in res.notes:
+        console.print(f"[yellow]• {note}[/yellow]")
+
+
+def handle_plot(res, ask=True, save=False, open_it=False):
+    if res.plot is None:
+        return
+    if ask:
+        save = ask_text("Save a plot of this result? [dim](y/N)[/dim]").lower().startswith("y")
+        if not save:
+            return
+        open_it = not ask_text("Open it now? [dim](Y/n)[/dim]").lower().startswith("n")
+    if not save:
+        return
+    with console.status("Plotting..."):
+        path = plots.save(res.plot, res.plot_name)
+    console.print(f"[green]Plot saved:[/green] {path}")
+    if open_it:
+        plots.open_file(path)
+
+
+# Keyboard input
+
+class Escape(Exception):
+    pass
+
+
+def _read_key_posix():
+    import select
+    fd = sys.stdin.fileno()
+    b = os.read(fd, 1)
+    if b == b"\x1b":
+        if select.select([fd], [], [], 0.05)[0]:
+            os.read(fd, 16)
+            return ""
+        return "esc"
+    if b and b[0] >= 0xC0:
+        b += os.read(fd, 3 if b[0] >= 0xF0 else 2 if b[0] >= 0xE0 else 1)
+    return b.decode(errors="ignore")
+
+
+@contextmanager
+def _cbreak():
+    if os.name == "nt":
+        yield
+        return
+    import termios
+    import tty
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    try:
+        tty.setcbreak(fd)
+        yield
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+
+def _read_key_windows():
+    import msvcrt
+    ch = msvcrt.getwch()
+    if ch in ("\x00", "\xe0"):
+        msvcrt.getwch()
+        return ""
+    return "esc" if ch == "\x1b" else ch
+
+
+def ask_text(prompt):
+    """Line input where ESC exits the program."""
+    if not sys.stdin.isatty():
+        console.print(prompt + " ", end="")
+        return input().strip()
+    with _cbreak():
+        console.print(prompt + " ", end="")
+        return _read_line(_read_key_windows if os.name == "nt" else _read_key_posix)
+
+
+def _read_line(read):
+    buf = ""
     while True:
-        
-        print(COMMANDS)
-        print("\n")
-        
-        a = int(input("=> "))
-        print("\n")
-        
-        if a == 1:
+        key = read()
+        if key == "esc":
+            console.print()
+            raise Escape
+        if key == "\x03":
+            console.print()
+            raise KeyboardInterrupt
+        if key in ("\r", "\n"):
+            console.print()
+            return buf.strip()
+        if key in ("\x7f", "\x08"):
+            if buf:
+                buf = buf[:-1]
+                sys.stdout.write("\b \b")
+                sys.stdout.flush()
+            continue
+        if key.isprintable():
+            buf += key
+            sys.stdout.write(key)
+            sys.stdout.flush()
 
-            print("Leave empty the one you want to calculate:")
-            print("(V in cm³/mol)\n")
-            P=read_float("P: ")
-            V=read_float("V: ")
-            T=read_float("T: ")
 
-            print("\n")
-            if P is None:
-                print("P (in bar) is equal to:")
-            elif V is None:
-                print("V (in cm³/mol) is equal to:")
-            elif T is None:
-                print("T (in K) is equal to:")
+# Interactive menu
 
-            output = calc.pvtIdeal(P,V,T)
-            if output is None:
-                print("ERROR")
-            else:
-                print(output)
-            print("\n")
+def _prompt_field(f):
+    hint = ""
+    if f.type == calcs.QUANTITY:
+        hint = f" [dim]({DEFAULT_INPUT_UNITS[f.qkind] or '-'} unless you type a unit)[/dim]"
+    elif f.type == calcs.CHOICE:
+        hint = f" [dim]({' / '.join(f.choices)})[/dim]"
+    if f.default is not None:
+        hint += f" [dim][default {f.default}][/dim]"
+    elif f.optional:
+        hint += " [dim][optional][/dim]"
+    while True:
+        text = ask_text(f"  {f.label}{hint}")
+        try:
+            return calcs.parse_value(f, text)
+        except Exception as exc:
+            console.print(f"  [red]{exc}[/red]")
 
-        elif a == 2:
 
-            print("Leave empty the one you want to calculate:")
-            print("(V in cm³/mol)\n")
-            P=read_float("P: ")
-            V=read_float("V: ")
-            T=read_float("T: ")
-            Pc=read_float("Pc: ")
-            Tc=read_float("Tc: ")
-            omega=read_float("Acentric factor: ")
+def run_interactive(calc):
+    console.rule(f"[b]{calc.title}[/b]", style=ACCENT)
+    if calc.help:
+        console.print(f"[dim]{calc.help}[/dim]")
+    kwargs = {f.name: _prompt_field(f) for f in calc.fields}
+    console.print()
+    with console.status("Calculating..."):
+        res = calc.fn(**kwargs)
+    show_result(res, calc)
+    handle_plot(res)
 
-            print("\n")
-            if P is None:
-                print("P (in bar) is equal to:")
-            elif V is None:
-                print("V (in cm³/mol) is equal to:")
-            elif T is None:
-                print("T (in K) is equal to:")
 
-            output = calc.pvtVirial(P,V,T,Pc,Tc,omega)
-            if output is None:
-                print("ERROR")
-            else:
-                print(output)
-            print("\n")
-
-        elif a == 3:
-
-            print("Leave empty the one you want to calculate:")
-            print("(V in cm³/mol)\n")
-            P=read_float("P: ")
-            V=read_float("V: ")
-            T=read_float("T: ")
-            Pc=read_float("Pc: ")
-            Tc=read_float("Tc: ")
-            omega=read_float("Acentric factor: ")
-
-            print("\n")
-            if P is None:
-                print("P (in bar) is equal to:")
-            elif V is None:
-                print("V (in cm³/mol) is equal to:")
-            elif T is None:
-                print("T (in K) is equal to:")
-
-            output = calc.pvtPengRobinson(P,V,T,Pc,Tc,omega)
-            if output is None:
-                print("ERROR")
-            else:
-                if V is None:
-                    print(f"{output[0]} (liquid)")
-                    print(f"{output[1]} (gas)")
-                else:
-                    print(output)
-            print("\n")
-
-        elif a == 4:
-
-            P=read_float("P: ")
-            T=read_float("T: ")
-            Pc=read_float("Pc: ")
-            Tc=read_float("Tc: ")
-            omega=read_float("Acentric factor: ")
-
-            print("\n")
-            output = calc.fugacity(P,T,Pc,Tc,omega)
-            if output is None:
-                print("ERROR")
-            else:
-                print(output)
-            print("\n")
-
-        elif a == 5:
-
-            P=read_float("P: ")
-            T=read_float("T: ")
-            Pc1=read_float("Pc of the component A: ")
-            Tc1=read_float("Tc of the component A: ")
-            omega1=read_float("Acentric factor of the component A: ")
-            y1=read_float("Gas fraction of the component A (0-1): ")
-            Pc2=read_float("Pc of the component B: ")
-            Tc2=read_float("Tc of the component B: ")
-            omega2=read_float("Acentric factor of the component B: ")
-
-            print("\n")
-            output = calc.fugacityMix(P,T,Pc1,Tc1,omega1,y1,Pc2,Tc2,omega2)
-            if output is None:
-                print("ERROR")
-            else:
-                print(output)
-            print("\n")
-
-        elif a == 6:
-
-            P=read_float("P: ")
-            T=read_float("T: ")
-            Pc1=read_float("Pc of the component A: ")
-            Tc1=read_float("Tc of the component A: ")
-            omega1=read_float("Acentric factor of the component A: ")
-            y1=read_float("Gas fraction of the component A (0-1): ")
-            Pc2=read_float("Pc of the component B: ")
-            Tc2=read_float("Tc of the component B: ")
-            omega2=read_float("Acentric factor of the component B: ")
-
-            print("\n")
-            output = calc.activity(P,T,Pc1,Tc1,omega1,y1,Pc2,Tc2,omega2)
-            if output is None:
-                print("ERROR")
-            else:
-                print(output)
-            print("\n")
-
-        elif a == 7:
-
-            P=read_float("P: ")
-            T=read_float("T: ")
-            Pc1=read_float("Pc of the component A: ")
-            Tc1=read_float("Tc of the component A: ")
-            omega1=read_float("Acentric factor of the component A: ")
-            y1=read_float("Gas fraction of the component A (0-1): ")
-            Pc2=read_float("Pc of the component B: ")
-            Tc2=read_float("Tc of the component B: ")
-            omega2=read_float("Acentric factor of the component B: ")
-
-            print("\n")
-            output = calc.activityMix(P,T,Pc1,Tc1,omega1,y1,Pc1,Tc1,omega2)
-            if output is None:
-                print("ERROR")
-            else:
-                print(output)
-            print("\n")
-
-        elif a == 8:
-
-            T=read_float("T: ")
-            Pc1=read_float("Pc of the component A: ")
-            Tc1=read_float("Tc of the component A: ")
-            omega1=read_float("Acentric factor of the component A: ")
-            Pc2=read_float("Pc of the component B: ")
-            Tc2=read_float("Tc of the component B: ")
-            omega2=read_float("Acentric factor of the component B: ")
-            print("Import a CSV file with the experimental data (P,x1,y1) sending its path. Example: C:/Users/Daniel/Documents/experimental_data.csv\n")
-            csv_path = input("Path: ")
-
-            print("\n")
-            output = calc.margules(T,Pc1,Tc1,omega1,Pc2,Tc2,omega2,csv_path)
-            if output is None:
-                print("ERROR")
-            else:
-                print(output)
-            print("\n")
-
-        elif a == 0:
-
-            break
-
+def units_menu():
+    console.rule("[b]Display units[/b]", style=ACCENT)
+    for kind in ("temperature", "pressure", "molar_volume", "molar_energy", "molar_entropy", "power"):
+        options = units_of(kind)
+        current = display.unit_for(kind)
+        text = ask_text(f"  {kind.replace('_', ' ')} [dim]({', '.join(options)}) [{current}][/dim]") or current
+        if text.lower() in [o.lower() for o in options]:
+            setattr(display, kind, text)
         else:
-            print("Invalid input.\n")
+            console.print(f"  [red]Unknown unit, keeping {current}[/red]")
+
+
+def menu():
+    print_logo()
+    console.print(
+        "\nInputs accept units: [b]25 C[/b], [b]10 atm[/b], [b]300[/b] (default unit). "
+        "Substances by name, formula or CAS.\n"
+    )
+    while True:
+        items = []
+        table = Table(show_header=False, box=None, padding=(0, 1))
+        for group, entries in calcs.groups().items():
+            table.add_row("", f"[b {ACCENT}]{group}[/]")
+            for c in entries:
+                items.append(c)
+                table.add_row(f"[b]{len(items)}[/b]", c.title)
+        table.add_row("", "")
+        table.add_row("[b]u[/b]", f"Display units [dim](T {display.temperature}, P {display.pressure}, "
+                                   f"E {display.molar_energy})[/dim]")
+        table.add_row("[b]Esc[/b]", "Exit")
+        console.print(table)
+        choice = ask_text("\n=>").lower()
+        console.print()
+        if choice == "u":
+            units_menu()
+            continue
+        if not choice.isdigit() or not 1 <= int(choice) <= len(items):
+            console.print("[red]Invalid option.[/red]\n")
+            continue
+        try:
+            run_interactive(items[int(choice) - 1])
+        except (Escape, KeyboardInterrupt):
+            raise
+        except Exception as exc:
+            console.print(f"[red]Error: {exc}[/red]")
+        return
+
+
+# Command line
+
+def _apply_units(t_unit, p_unit, e_unit, v_unit):
+    for kind, unit in (("temperature", t_unit), ("pressure", p_unit), ("molar_energy", e_unit),
+                       ("molar_volume", v_unit)):
+        if unit:
+            setattr(display, kind, unit)
+
+
+@app.callback(invoke_without_command=True)
+def root(ctx: typer.Context):
+    if ctx.invoked_subcommand is None:
+        try:
+            menu()
+        except (Escape, KeyboardInterrupt, EOFError):
+            pass
+
+
+@app.command("list")
+def list_calcs():
+    """List every calculation and its inputs."""
+    for group, entries in calcs.groups().items():
+        console.print(f"\n[b {ACCENT}]{group}[/]")
+        for c in entries:
+            args = " ".join(f"{f.name.rstrip('_')}=" + ("?" if f.optional or f.default is not None else "")
+                            for f in c.fields)
+            console.print(f"  [b]{c.id:<15}[/b] {c.title}\n  {'':<15} [dim]{args}[/dim]")
+
+
+@app.command()
+def run(
+    calc_id: str = typer.Argument(..., help="Calculation id (see 'thermo-utils list')"),
+    args: Optional[List[str]] = typer.Argument(None, help="Inputs as key=value, e.g. T='25 C' P='10 bar'"),
+    plot: bool = typer.Option(False, "--plot", help="Save a plot when available"),
+    open_plot: bool = typer.Option(False, "--open", help="Open the saved plot"),
+    t_unit: str = typer.Option(None, "--T-unit", help="Display unit for temperature"),
+    p_unit: str = typer.Option(None, "--P-unit", help="Display unit for pressure"),
+    e_unit: str = typer.Option(None, "--E-unit", help="Display unit for molar energy"),
+    v_unit: str = typer.Option(None, "--V-unit", help="Display unit for molar volume"),
+):
+    """Run one calculation without the menu."""
+    _apply_units(t_unit, p_unit, e_unit, v_unit)
+    try:
+        calc = calcs.by_id(calc_id)
+    except KeyError:
+        console.print(f"[red]Unknown calculation '{calc_id}'. See 'thermo-utils list'.[/red]")
+        raise typer.Exit(1)
+    given = {}
+    for item in args or []:
+        if "=" not in item:
+            console.print(f"[red]Expected key=value, got '{item}'[/red]")
+            raise typer.Exit(1)
+        k, v = item.split("=", 1)
+        given[k.strip().lower()] = v
+    kwargs = {}
+    try:
+        for f in calc.fields:
+            key = f.name.rstrip("_").lower()
+            kwargs[f.name] = calcs.parse_value(f, given.pop(key, ""))
+        if given:
+            raise ValueError(f"Unknown inputs: {', '.join(given)}")
+        res = calc.fn(**kwargs)
+    except Exception as exc:
+        console.print(f"[red]Error: {exc}[/red]")
+        raise typer.Exit(1)
+    show_result(res, calc)
+    handle_plot(res, ask=False, save=plot or open_plot, open_it=open_plot)
+
+
+@app.command()
+def info(substance: str = typer.Argument(..., help="Name, formula or CAS")):
+    """Show the databank values of a substance."""
+    run("info", [f"sub={substance}"], False, False, None, None, None, None)
+
+
+def main():
+    app()
+
 
 if __name__ == "__main__":
-    cli()
+    main()

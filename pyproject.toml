@@ -1,15 +1,26 @@
 [project]
 name = "thermo-utils"
-version = "0.1.0"
-description = "A simple and useful package for thermodynamics"
+version = "0.2.0"
+description = "A thermodynamics calculator for chemical engineering, from homework to plant design"
 
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "typer (>=0.20.0,<0.21.0)",
-    "colorama (>=0.4.6,<0.5.0)",
-    "scipy (>=1.16.3,<2.0.0)"
+    "typer (>=0.20.0,<1.0.0)",
+    "rich (>=13.0.0)",
+    "scipy (>=1.16.3,<2.0.0)",
+    "numpy (>=2.0.0)",
+    "CoolProp (>=7.0.0)",
+    "thermo (>=0.6.0)",
+    "chemicals (>=1.5.0)",
+    "matplotlib (>=3.9.0)"
 ]
+
+[project.optional-dependencies]
+dev = ["pytest (>=8.0.0)"]
+
+[project.scripts]
+thermo-utils = "thermo_utils.cli:main"
 
 [tool.poetry]
 packages = [{include = "thermo_utils", from = "src"}]
@@ -18,6 +29,5 @@ packages = [{include = "thermo_utils", from = "src"}]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
 
-[tool.poetry.scripts]
-thermo-utils = "thermo_utils.cli:cli"
-
+[tool.pytest.ini_options]
+testpaths = ["tests"]

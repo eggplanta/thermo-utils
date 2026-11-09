@@ -10,3 +10,5 @@ build/
 poetry.lock
 
 tests/
+thermo-plots/
+*.egg-info/
