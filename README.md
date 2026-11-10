@@ -1,8 +1,8 @@
 <div align="center">
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/logo-dark.png">
-  <img src="docs/logo-light.png" alt="thermo-utils" width="560">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/eggplanta/thermo-utils/main/docs/logo-dark.png">
+  <img src="https://raw.githubusercontent.com/eggplanta/thermo-utils/main/docs/logo-light.png" alt="thermo-utils" width="560">
 </picture>
 
 ![status](https://img.shields.io/badge/status-working-brightgreen)
@@ -21,8 +21,8 @@ You only type the substance name: Tc, Pc, ω, Cp, ΔHf, Psat and the other data 
 
 <table>
   <tr>
-    <td align="center"><img src="docs/screenshots/menu.png" width="420"><br><sub>Main menu</sub></td>
-    <td align="center"><img src="docs/screenshots/property-change.png" width="420"><br><sub>Property change between two states</sub></td>
+    <td align="center"><img src="https://raw.githubusercontent.com/eggplanta/thermo-utils/main/docs/screenshots/menu.png" width="420"><br><sub>Main menu</sub></td>
+    <td align="center"><img src="https://raw.githubusercontent.com/eggplanta/thermo-utils/main/docs/screenshots/property-change.png" width="420"><br><sub>Property change between two states</sub></td>
   </tr>
 </table>
 
@@ -31,10 +31,10 @@ You only type the substance name: Tc, Pc, ω, Cp, ΔHf, Psat and the other data 
 ## Installation
 
 ```bash
-git clone https://github.com/eggplanta/thermo-utils
-cd thermo-utils
-pip install .
+pipx install thermo-utils
 ```
+
+or `uv tool install thermo-utils`, or `pip install thermo-utils` inside a virtual environment.
 
 ## Usage
 
@@ -105,3 +105,8 @@ The `auto` model uses the reference EOS when available and the fitted Peng-Robin
 Every result starts with the equations used in the calculation.
 H, S, U, G and A share one reference state (ideal gas at 298.15 K and 1 bar), so differences between models are meaningful.
 Data come from [chemicals](https://github.com/CalebBell/chemicals), [thermo](https://github.com/CalebBell/thermo) and CoolProp.
+
+## Contributing
+
+Contributions are very welcome! thermo-utils still has a lot of room to grow, and I'd be happy to get your help.
+Found a wrong result, a missing substance or a bug? Have an idea for a new calculation? Open an [issue](https://github.com/eggplanta/thermo-utils/issues) or send a pull request.

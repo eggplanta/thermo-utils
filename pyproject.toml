@@ -4,6 +4,19 @@ version = "0.2.0"
 description = "A thermodynamics calculator for chemical engineering, from homework to plant design"
 
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Dspavier" }]
+keywords = ["thermodynamics", "chemical engineering", "equation of state", "phase equilibrium", "calculator"]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: Education",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Topic :: Scientific/Engineering :: Physics",
+]
 requires-python = ">=3.12"
 dependencies = [
     "typer (>=0.20.0,<1.0.0)",
@@ -15,6 +28,10 @@ dependencies = [
     "chemicals (>=1.5.0)",
     "matplotlib (>=3.9.0)"
 ]
+
+[project.urls]
+Homepage = "https://github.com/eggplanta/thermo-utils"
+Issues = "https://github.com/eggplanta/thermo-utils/issues"
 
 [project.optional-dependencies]
 dev = ["pytest (>=8.0.0)"]
