@@ -115,7 +115,7 @@ def _read_key_posix():
 
 @contextmanager
 def _cbreak():
-    if os.name == "nt":
+    if os.name == "nt" or not sys.stdin.isatty():
         yield
         return
     import termios
@@ -123,7 +123,7 @@ def _cbreak():
     fd = sys.stdin.fileno()
     old = termios.tcgetattr(fd)
     try:
-        tty.setcbreak(fd)
+        tty.setcbreak(fd, termios.TCSANOW)
         yield
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
@@ -266,7 +266,8 @@ def _apply_units(t_unit, p_unit, e_unit, v_unit):
 def root(ctx: typer.Context):
     if ctx.invoked_subcommand is None:
         try:
-            menu()
+            with _cbreak():
+                menu()
         except (Escape, KeyboardInterrupt, EOFError):
             pass
 
