@@ -53,12 +53,6 @@ BY_CALC = {
         "ΔS = S_R2 − S_R1 + ∫Cp_ig/T dT − R ln(P2/P1)",
         "ΔU = ΔH − Δ(PV)     ΔG = ΔH − Δ(TS)     ΔA = ΔU − Δ(TS)",
     ],
-    "residual": [
-        "M_R = M − M_ig   (same T and P)",
-        "G_R/RT = ln φ = ∫(Z − 1) dP/P",
-        "H_R/RT = −T∫(∂Z/∂T)_P dP/P",
-        "S_R/R = H_R/RT − G_R/RT",
-    ],
     "saturation": [
         "G_liq = G_vap   (φ_liq = φ_vap)",
         "dPsat/dT = ΔHvap/(T·ΔVvap)   (Clapeyron)",
@@ -74,19 +68,10 @@ BY_CALC = {
         "ΔH2/ΔH1 = [(1 − Tr2)/(1 − Tr1)]^0.38   (Watson)",
         "ΔSvap = ΔHvap/Tsat",
     ],
-    "reaction-heat": [
-        "ΔH°298 = Σ νi·ΔHf°i     ΔG°298 = Σ νi·ΔGf°i",
-        "ΔH°(T) = ΔH°298 + ∫ΔCp° dT     ΔCp° = Σ νi·Cp°i   (Kirchhoff)",
-    ],
-    "combustion": [
-        "HHV = −ΔH°c   (H2O liquid in the products)",
-        "LHV = HHV − n_H2O·ΔHvap(H2O, 298 K)",
-    ],
     "flame": [
         "ΔH = Σ n_reac∫Cp dT (T_in → 298) + ΔH°298 + Σ n_prod∫Cp dT (298 → Tf) = 0",
         "Air: 21 % O2, 79 % N2",
     ],
-    "phase-rule": ["F = 2 − π + N − r − s"],
     "device": [
         "Steady flow, adiabatic, ΔEk = ΔEp = 0:   Ws = ΔH",
         "Isentropic outlet: S2' = S1     Ws,isen = H2' − H1",
@@ -119,9 +104,7 @@ BY_CALC = {
         "Margules: G^E/(x1x2RT) = A21·x1 + A12·x2",
         "van Laar: x1x2RT/G^E = x1/A'21 + x2/A'12",
     ],
-    "henry": ["yi·P = xi·Hi"],
     "lle": ["xi_α·γi_α = xi_β·γi_β   (each species)"],
-    "stability": ["Stable if d²(ΔG_mix/RT)/dx1² > 0 for every x1"],
     "sle": [
         "ln(xi·γi) = −(ΔHfus,i/R)(1/T − 1/Tm,i)   (immiscible solids)",
         "Eutectic: both solubility curves meet",
@@ -143,6 +126,26 @@ BY_CALC = {
     "gibbs": [
         "min G = Σ ni[G°i + RT ln(yi·P/P°)]",
         "Element balances: Σ ni·aik = Ak",
+    ],
+    "surface-tension": [
+        "s = −(∂σ/∂T)     h = σ − T(∂σ/∂T)",
+        "Brock-Bird: σ = Pc^(2/3)·Tc^(1/3)·Q·(1 − Tr)^(11/9)",
+        "Macleod-Sugden: σ^(1/4) = [P](ρ_liq − ρ_vap)",
+    ],
+    "kelvin": ["ln(P/Psat) = ±2σV_liq/(rRT)   (+ drop, − bubble or capillary)"],
+    "adsorption": [
+        "Langmuir: q = qm·K·P/(1 + K·P)",
+        "Freundlich: q = K·P^(1/n)",
+        "BET: q = qm·c·x/[(1 − x)(1 − x + c·x)]     x = P/P0",
+        "Area = qm·N_A·a_m     a_m = 1.091(V_liq/N_A)^(2/3)",
+    ],
+    "gibbs-adsorption": [
+        "Γ = −(1/nRT)·dσ/d ln c",
+        "Szyszkowski: σ = σ0 − nRT·Γmax·ln(1 + K·c)     Γ = Γmax·K·c/(1 + K·c)",
+    ],
+    "micelles": [
+        "ΔG°mic = (1 + β)·RT·ln x_CMC",
+        "ΔH°mic = (1 + β)·R·d ln x_CMC/d(1/T)     ΔS°mic = (ΔH°mic − ΔG°mic)/T",
     ],
 }
 

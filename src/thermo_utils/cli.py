@@ -15,7 +15,10 @@ from thermo_utils.units import DEFAULT_INPUT_UNITS, display, units_of
 
 warnings.filterwarnings("ignore")
 console = Console(highlight=False)
-app = typer.Typer(add_completion=False, help="Thermodynamics calculator for chemical engineering.")
+app = typer.Typer(add_completion=False, help=(
+    "Thermodynamics calculator for chemical engineering.\n\n"
+    "Run without arguments for the menu, or: thermo-utils <calc> <substances> key=value ...\n\n"
+    "Example: thermo-utils delta water T1=25C P1=1atm T2=300C P2=20bar"))
 
 LOGO = r"""
               (        )  (        )      (          )
@@ -268,21 +271,32 @@ def root(ctx: typer.Context):
             pass
 
 
+def _usage(f):
+    name, opt = f.name.rstrip("_"), f.optional or f.default is not None
+    if f.type in (calcs.SUBSTANCE, calcs.SUBSTANCES):
+        return f"\\[{name}]" if opt else f"<{name}>"
+    return f"{name}=" + ("?" if opt else "")
+
+
 @app.command("list")
 def list_calcs():
     """List every calculation and its inputs."""
     for group, entries in calcs.groups().items():
         console.print(f"\n[b {ACCENT}]{group}[/]")
         for c in entries:
-            args = " ".join(f"{f.name.rstrip('_')}=" + ("?" if f.optional or f.default is not None else "")
-                            for f in c.fields)
+            args = " ".join(_usage(f) for f in c.fields)
             console.print(f"  [b]{c.id:<15}[/b] {c.title}\n  {'':<15} [dim]{args}[/dim]")
+            if c.id == "device":
+                console.print(f"  {'':<15} [dim]or: {' / '.join(DEVICES)} <sub> T1= P1= P2= ...[/dim]")
 
 
-@app.command()
+DEVICES = ("compressor", "pump", "turbine", "valve")
+
+
+@app.command(hidden=True)
 def run(
     calc_id: str = typer.Argument(..., help="Calculation id (see 'thermo-utils list')"),
-    args: Optional[List[str]] = typer.Argument(None, help="Inputs as key=value, e.g. T='25 C' P='10 bar'"),
+    args: Optional[List[str]] = typer.Argument(None, help="Substances, then inputs as key=value"),
     plot: bool = typer.Option(False, "--plot", help="Save a plot when available"),
     open_plot: bool = typer.Option(False, "--open", help="Open the saved plot"),
     t_unit: str = typer.Option(None, "--T-unit", help="Display unit for temperature"),
@@ -292,18 +306,28 @@ def run(
 ):
     """Run one calculation without the menu."""
     _apply_units(t_unit, p_unit, e_unit, v_unit)
+    given = {}
+    if calc_id in DEVICES:
+        calc_id, given["kind"] = "device", calc_id
     try:
         calc = calcs.by_id(calc_id)
     except KeyError:
         console.print(f"[red]Unknown calculation '{calc_id}'. See 'thermo-utils list'.[/red]")
         raise typer.Exit(1)
-    given = {}
+    loose = []
     for item in args or []:
-        if "=" not in item:
-            console.print(f"[red]Expected key=value, got '{item}'[/red]")
-            raise typer.Exit(1)
-        k, v = item.split("=", 1)
-        given[k.strip().lower()] = v
+        if "=" in item:
+            k, v = item.split("=", 1)
+            given[k.strip().lower()] = v
+        else:
+            loose.append(item)
+    for f in calc.fields:
+        key = f.name.rstrip("_").lower()
+        if loose and f.type in (calcs.SUBSTANCE, calcs.SUBSTANCES) and key not in given:
+            given[key] = loose.pop(0)
+    if loose:
+        console.print(f"[red]Unexpected input '{loose[0]}'. Use key=value.[/red]")
+        raise typer.Exit(1)
     kwargs = {}
     try:
         for f in calc.fields:
@@ -319,13 +343,12 @@ def run(
     handle_plot(res, ask=False, save=plot or open_plot, open_it=open_plot)
 
 
-@app.command()
-def info(substance: str = typer.Argument(..., help="Name, formula or CAS")):
-    """Show the databank values of a substance."""
-    run("info", [f"sub={substance}"], False, False, None, None, None, None)
-
-
 def main():
+    argv, i = sys.argv[1:], 0
+    while i < len(argv) and argv[i].startswith("-"):
+        i += 2 if argv[i].endswith("-unit") else 1
+    if i < len(argv) and argv[i] not in ("list", "run"):
+        sys.argv[1:] = ["run", argv[i]] + argv[:i] + argv[i + 1:]
     app()
 
 

@@ -230,19 +230,6 @@ def _plot_binary(solver, subs, T_, P_):
     return fig
 
 
-# Henry's law
-
-def henry(gas, H, P_, y=1.0, solvent_mw=18.015):
-    x = y * P_ / H
-    res = Result(f"Henry's law - {gas.name}")
-    res.section("y·P = x·H", [
-        row("Henry constant H", H, P), row("Partial pressure y·P", y * P_, P),
-        row("Mole fraction in liquid x", f"{x:.6g}"),
-        row("Solubility", f"{x / (1 - x) / solvent_mw * 1e3 * gas.MW:.6g} g gas / kg solvent"),
-    ])
-    return res
-
-
 # Liquid-liquid equilibrium
 
 def lle(subs, T_, model="unifac", params=None):
@@ -303,28 +290,6 @@ def _plot_lle(ge, subs, T_):
         ax.grid(alpha=0.3); ax.set_xlim(0, 1)
     fig.tight_layout()
     return fig
-
-
-def stability(subs, T_, model="unifac", params=None):
-    if len(subs) != 2:
-        raise ValueError("Stability analysis is implemented for binary mixtures.")
-    ge = activity.GEModel(subs, model, params)
-    x = np.linspace(1e-3, 1 - 1e-3, 999)
-    g = np.array([ge.GE(T_, [a, 1 - a]) / (R * T_) + a * math.log(a) + (1 - a) * math.log(1 - a) for a in x])
-    d2 = np.gradient(np.gradient(g, x), x)
-    unstable = x[d2 < 0]
-    res = Result("Stability of a binary liquid")
-    if unstable.size:
-        res.section("Result", [
-            row("Criterion", "d²(ΔG/RT)/dx² < 0 somewhere: the solution splits into two liquids"),
-            row("Spinodal range", f"{unstable.min():.4f} < x {subs[0].name} < {unstable.max():.4f}"),
-        ])
-    else:
-        res.section("Result", [row("Criterion", "d²(ΔG/RT)/dx² > 0 everywhere: stable (one liquid)")])
-    res.notes += ge.notes
-    res.plot = lambda: _plot_lle(ge, subs, T_)
-    res.plot_name = f"stability_{'_'.join(_names(subs))}"
-    return res
 
 
 # Solid-liquid equilibrium
@@ -498,15 +463,3 @@ def _read_pxy(path):
             rows.append((to_si(vals[0], unit, P), vals[1], vals[2]))
     return rows
 
-
-def phase_rule(components, phases, reactions_=0, special=0):
-    F = 2 - phases + components - reactions_ - special
-    res = Result("Gibbs phase rule")
-    res.section("F = 2 - π + N - r - s", [
-        row("Components N", str(components)), row("Phases π", str(phases)),
-        row("Independent reactions r", str(reactions_)), row("Special constraints s", str(special)),
-        row("Degrees of freedom F", str(F)),
-    ])
-    if F < 0:
-        res.notes.append("F < 0: this system cannot exist in equilibrium.")
-    return res

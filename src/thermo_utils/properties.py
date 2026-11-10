@@ -247,23 +247,6 @@ def _molar_flow(sub, flow):
     return value / (sub.MW / 1000) if kind == "mass" else value
 
 
-# Departure functions
-
-def residual_properties(sub, T_, P_, model="auto"):
-    res = Result(f"Residual (departure) properties of {sub.name}")
-    rows = res.section(f"At {_f(T_, T)} and {_f(P_, P)}")
-    for m in _models_for(sub):
-        if m == "ideal":
-            continue
-        try:
-            st = pure.state(sub, T_, P_, m)
-            rows.append(row(m, f"H_R = {_f(st.HR, E)}   S_R = {_f(st.SR, S)}   G_R = {_f(st.GR, E)}   φ = {st.phi:.5f}   Z = {st.Z:.5f}"))
-        except Exception as exc:
-            rows.append(row(m, f"failed: {exc}"))
-    res.notes.append("M_R = M(real) - M(ideal gas) at the same T and P.")
-    return res
-
-
 # Saturation
 
 def saturation(sub, T_=None, P_=None, model="auto"):

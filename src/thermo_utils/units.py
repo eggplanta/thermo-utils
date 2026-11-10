@@ -12,6 +12,9 @@ MASS_FLOW = "mass_flow"
 MOLAR_FLOW = "molar_flow"
 POWER = "power"
 DIMENSIONLESS = "dimensionless"
+LENGTH = "length"
+SURFACE_TENSION = "surface_tension"
+CONCENTRATION = "concentration"
 
 _FACTORS = {
     PRESSURE: {
@@ -40,6 +43,9 @@ _FACTORS = {
         "mol/min": 1 / 60, "kmol/min": 1000 / 60,
     },
     POWER: {"w": 1.0, "kw": 1e3, "mw": 1e6, "hp": 745.699872, "cv": 735.49875},
+    LENGTH: {"m": 1.0, "cm": 1e-2, "mm": 1e-3, "um": 1e-6, "µm": 1e-6, "nm": 1e-9, "in": 0.0254},
+    SURFACE_TENSION: {"n/m": 1.0, "mn/m": 1e-3, "dyn/cm": 1e-3, "j/m2": 1.0, "mj/m2": 1e-3},
+    CONCENTRATION: {"mol/l": 1e3, "mmol/l": 1.0, "mol/m3": 1.0, "m": 1e3, "mm": 1.0, "mol/dm3": 1e3},
     DIMENSIONLESS: {"": 1.0},
 }
 
@@ -55,6 +61,7 @@ DEFAULT_INPUT_UNITS = {
     TEMPERATURE: "K", PRESSURE: "bar", MOLAR_VOLUME: "cm3/mol",
     MOLAR_ENERGY: "J/mol", MOLAR_ENTROPY: "J/mol/K", MASS_FLOW: "kg/s",
     MOLAR_FLOW: "mol/s", POWER: "kW", DIMENSIONLESS: "",
+    LENGTH: "m", SURFACE_TENSION: "mN/m", CONCENTRATION: "mol/L",
 }
 
 
@@ -68,6 +75,9 @@ class DisplayUnits:
     mass_flow: str = "kg/s"
     molar_flow: str = "mol/s"
     power: str = "kW"
+    length: str = "m"
+    surface_tension: str = "mN/m"
+    concentration: str = "mol/L"
 
     def unit_for(self, kind):
         return getattr(self, kind, "")

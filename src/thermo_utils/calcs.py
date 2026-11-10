@@ -4,11 +4,12 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from thermo_utils import (
-    activity, chemical_equilibrium, devices, heat, mixtures, properties, substances, vle,
+    activity, chemical_equilibrium, devices, heat, mixtures, properties, substances, surface, vle,
 )
 from thermo_utils.pure import MODELS
 from thermo_utils.units import (
-    MASS_FLOW, MOLAR_FLOW, PRESSURE, TEMPERATURE, MOLAR_VOLUME, parse_quantity,
+    CONCENTRATION, LENGTH, MASS_FLOW, MOLAR_FLOW, PRESSURE, TEMPERATURE, MOLAR_VOLUME,
+    parse_quantity,
 )
 
 SUBSTANCE = "substance"
@@ -114,6 +115,7 @@ DEVICES = "Flow devices"
 MIX = "Mixtures"
 PHASE = "Phase equilibrium"
 REACT = "Chemical equilibrium"
+SURF = "Surface phenomena"
 
 CALCS = [
     Calc("info", PURE, "Substance data (Tc, Pc, ω, Cp, ΔHf...)", properties.substance_info, [_sub()]),
@@ -131,9 +133,6 @@ CALCS = [
         _q("T2", "T2", TEMPERATURE, True), _q("P2", "P2", PRESSURE, True),
         Field("x2", "Vapor fraction 2 (two-phase only)", NUMBER, optional=True), MODEL_FIELD,
     ], "Each state: T and P, or a vapor fraction with T or P. Phase changes are handled."),
-    Calc("residual", PURE, "Residual (departure) properties H_R, S_R, G_R, φ", properties.residual_properties, [
-        _sub(), _q("T_", "T", TEMPERATURE), _q("P_", "P", PRESSURE),
-    ]),
     Calc("saturation", PURE, "Saturation: Psat/Tsat, ΔHvap, saturated volumes", properties.saturation, [
         _sub(), _q("T_", "T", TEMPERATURE, True), _q("P_", "P", PRESSURE, True), MODEL_FIELD,
     ], "Give T or P."),
@@ -144,19 +143,9 @@ CALCS = [
     Calc("latent", HEAT, "Latent heats (databank, Riedel, Watson, fusion)", heat.latent_heat, [
         _sub(), _q("T_", "T (default: normal boiling point)", TEMPERATURE, True),
     ]),
-    Calc("reaction-heat", HEAT, "Heat of reaction ΔH°rxn at T (Kirchhoff)", heat.reaction_heat, [
-        Field("reaction", "Reaction (e.g. CH4 + 2 O2 -> CO2 + 2 H2O(l))", TEXT),
-        _q("T_", "T", TEMPERATURE, default=298.15),
-    ], "Phases: add (g) or (l) after a species. Default is gas."),
-    Calc("combustion", HEAT, "Heat of combustion (HHV, LHV)", heat.combustion_heat, [_sub()]),
     Calc("flame", HEAT, "Adiabatic flame temperature", heat.adiabatic_flame, [
         _sub("fuel", "Fuel"), Field("excess_air", "Excess air fraction (0.2 = 20 %)", NUMBER, default=0.0),
         _q("T_in", "Inlet temperature", TEMPERATURE, default=298.15),
-    ]),
-    Calc("phase-rule", PHASE, "Gibbs phase rule (degrees of freedom)", mixtures.phase_rule, [
-        Field("components", "Components N", INTEGER), Field("phases", "Phases π", INTEGER),
-        Field("reactions_", "Independent reactions r", INTEGER, default=0),
-        Field("special", "Special constraints s", INTEGER, default=0),
     ]),
     Calc("device", DEVICES, "Compressor, pump, turbine or valve (one step)", devices.flow_device, [
         _sub(), Field("kind", "Device", CHOICE, choices={
@@ -202,14 +191,7 @@ CALCS += [
         Field("path", "CSV file with columns P, x1, y1", TEXT),
         Field("model", "Model", CHOICE, default="margules", choices={"margules": "Margules", "vanlaar": "van Laar"}),
     ], "Header like 'P (kPa),x1,y1' sets the pressure unit."),
-    Calc("henry", PHASE, "Henry's law: gas solubility", mixtures.henry, [
-        _sub("gas", "Gas"), _q("H", "Henry constant", PRESSURE), _q("P_", "Total pressure", PRESSURE),
-        Field("y", "Gas mole fraction in the vapor", NUMBER, default=1.0),
-    ]),
     Calc("lle", PHASE, "Liquid-liquid equilibrium (binary) + binodal curve", mixtures.lle, [
-        SUBS_FIELD, _q("T_", "T", TEMPERATURE), GE_FIELD, PARAMS_FIELD,
-    ]),
-    Calc("stability", PHASE, "Stability of a liquid mixture (phase splitting)", mixtures.stability, [
         SUBS_FIELD, _q("T_", "T", TEMPERATURE), GE_FIELD, PARAMS_FIELD,
     ]),
     Calc("sle", PHASE, "Solid-liquid equilibrium: eutectic diagram (binary)", mixtures.sle, [
@@ -242,6 +224,36 @@ CALCS += [
     ], "Ideal-gas mixture. No need to write the reactions."),
 ]
 
+CALCS += [
+    Calc("surface-tension", SURF, "Surface tension σ(T), surface entropy and enthalpy", surface.surface_tension, [
+        _sub(), _q("T_", "T", TEMPERATURE),
+    ]),
+    Calc("kelvin", SURF, "Kelvin equation: vapor pressure over a curved surface", surface.kelvin, [
+        _sub(), _q("T_", "T", TEMPERATURE), _q("r", "Radius of curvature", LENGTH),
+        Field("kind", "Surface", CHOICE, default="drop", choices={
+            "drop": "drop (convex)", "bubble": "bubble or capillary (concave)"}),
+    ]),
+    Calc("adsorption", SURF, "Adsorption isotherms: Langmuir, Freundlich, BET (CSV)", surface.adsorption, [
+        Field("path", "CSV file with columns P, q", TEXT),
+        Field("model", "Model", CHOICE, default="all", choices={
+            "all": "all", "langmuir": "Langmuir", "freundlich": "Freundlich", "bet": "BET"}),
+        Field("adsorbate", "Adsorbate (for BET P0 and area)", SUBSTANCE, optional=True),
+        _q("T_", "T (for BET)", TEMPERATURE, True), _q("P0", "P0 (optional, BET)", PRESSURE, True),
+        Field("cross_section", "Area per molecule in nm² (optional, BET)", NUMBER, optional=True),
+    ], "Header like 'P (kPa),q (mmol/g)' sets the units."),
+    Calc("gibbs-adsorption", SURF, "Gibbs adsorption isotherm (surface excess from σ vs c)", surface.gibbs_adsorption, [
+        Field("path", "CSV file with columns c, σ", TEXT), _q("T_", "T", TEMPERATURE),
+        Field("n", "n (1 nonionic, 2 ionic 1:1 without salt)", INTEGER, default=1),
+    ], "Header like 'c (mmol/L),sigma (mN/m)' sets the units."),
+    Calc("micelles", SURF, "Micellization: CMC and ΔG°mic", surface.micelles, [
+        _q("T_", "T", TEMPERATURE), _q("cmc", "CMC (or leave empty and give a CSV)", CONCENTRATION, True),
+        Field("beta", "Counterion binding β (0 for nonionic)", NUMBER, default=0.0),
+        _q("T2", "Second T (optional, for ΔH)", TEMPERATURE, True),
+        _q("cmc2", "CMC at the second T (optional)", CONCENTRATION, True),
+        Field("path", "CSV file with columns c, σ (optional)", TEXT, optional=True),
+    ]),
+]
+
 
 def by_id(calc_id):
     for c in CALCS:
@@ -251,7 +263,7 @@ def by_id(calc_id):
 
 
 def groups():
-    out = {g: [] for g in (PURE, HEAT, DEVICES, MIX, PHASE, REACT)}
+    out = {g: [] for g in (PURE, HEAT, DEVICES, MIX, PHASE, REACT, SURF)}
     for c in CALCS:
         out.setdefault(c.group, []).append(c)
     return out
