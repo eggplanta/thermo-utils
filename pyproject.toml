@@ -1,6 +1,6 @@
 [project]
 name = "thermo-utils"
-version = "0.2.0"
+version = "0.2.1"
 description = "A thermodynamics calculator for chemical engineering, from homework to plant design"
 
 readme = "README.md"
