@@ -230,12 +230,19 @@ def _cp_offsets(sub):
 _CP_OFFSETS = {}
 
 
+T_MAX = 6000.0
+
+
 def _cp_state_from(sub, AS):
     T, P, rho = AS.T(), AS.p(), AS.rhomolar()
     Z = P / (rho * R * T)
     phase = _PHASES.get(AS.phase(), "unknown")
     h0, s0 = _cp_offsets(sub)
     st = State(T, P, 1 / rho, phase, "coolprop", AS.hmolar() - h0, AS.smolar() - s0)
+    t_max = AS.Tmax()
+    if T > t_max * 1.0001:
+        st.notes.append(f"T is above the range of the {sub.name} reference EOS ({t_max:.0f} K): "
+                        "values are extrapolated (still close to ideal gas at moderate P).")
     if phase == "two-phase":
         st.phase = f"two-phase (vapor fraction {AS.Q():.4g})"
         return st
@@ -258,6 +265,9 @@ def _coolprop_state(sub, T, P):
     try:
         AS = _single(sub, CoolProp.PT_INPUTS, P, T)
     except ValueError as exc:
+        if "pseudo-pure" in str(exc):
+            raise ValueError(f"{sub.name} at T={T:.6g} K, P={P:.6g} Pa lies between its bubble and dew points "
+                             "(two-phase). Give a vapor fraction instead.") from None
         raise ValueError(f"CoolProp could not solve {sub.name} at T={T:.6g} K, P={P:.6g} Pa: {exc}") from None
     return _cp_state_from(sub, AS)
 
@@ -328,7 +338,7 @@ def saturation(sub, T=None, P=None, model="auto"):
         vap = _single(sub, inputs, *args)
         T_sat, P_sat = liq.T(), liq.p()
         L = _cp_state_from(sub, _single(sub, CoolProp.PT_INPUTS, P_sat, T_sat * (1 - 1e-9), CoolProp.iphase_liquid))
-        V = _cp_state_from(sub, _single(sub, CoolProp.PT_INPUTS, P_sat, T_sat * (1 + 1e-9), CoolProp.iphase_gas))
+        V = _cp_state_from(sub, _single(sub, CoolProp.PT_INPUTS, vap.p(), vap.T() * (1 + 1e-9), CoolProp.iphase_gas))
         L.V, V.V = 1 / liq.rhomolar(), 1 / vap.rhomolar()
         return T_sat, P_sat, L, V
     if model in _CUBICS:
@@ -387,9 +397,10 @@ def _solve_T(sub, P, target, prop, model):
     """State at P with given H or S, including the two-phase region."""
     model = resolve_model(sub, model)
     has_liquid = model == "coolprop" or model in _CUBICS
-    T_sat = None
+    T_sat = T_dew = None
     if has_liquid and P < sub.Pc:
         T_sat, _, L, V = saturation(sub, P=P, model=model)
+        T_dew = V.T
         lo, hi = getattr(L, prop), getattr(V, prop)
         if lo <= target <= hi:
             x = (target - lo) / (hi - lo)
@@ -398,13 +409,13 @@ def _solve_T(sub, P, target, prop, model):
     if T_sat is not None and f(T_sat * 0.999999) >= 0:
         a, b = _t_low(sub, model), T_sat * 0.999999
     else:
-        a = T_sat * 1.000001 if T_sat is not None else _t_low(sub, model)
+        a = T_dew * 1.000001 if T_dew is not None else _t_low(sub, model)
         b = _t_high(sub, model, a, f)
     return state(sub, brentq(f, a, b, xtol=1e-9), P, model)
 
 
 def _t_high(sub, model, a, f):
-    t_max = CP.PropsSI("Tmax", sub.coolprop) if model == "coolprop" else 6000.0
+    t_max = T_MAX
     b = max(a * 1.5, (sub.Tc or 300) * 1.2)
     while f(b) < 0:
         if b >= t_max:

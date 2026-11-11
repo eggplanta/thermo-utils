@@ -55,15 +55,13 @@ def mixture_fugacity(subs, T_, P_, ys, model="pr"):
             row("B mixture", Bmix, V), row("Z", Z), row("V", Z * R * T_ / P_, V),
         ])
     else:
-        from thermo import CEOSGas, CEOSLiquid, ChemicalConstantsPackage, PRMIX, SRKMIX
+        from thermo import CEOSGas, CEOSLiquid, PRMIX, SRKMIX
         from thermo.interaction_parameters import IPDB
-        cas = [s.cas for s in subs]
-        c, p = ChemicalConstantsPackage.from_IDs(cas)
-        kij = IPDB.get_ip_asymmetric_matrix("ChemSep PR", cas, "kij")
-        kw = dict(Tcs=c.Tcs, Pcs=c.Pcs, omegas=c.omegas, kijs=kij)
+        kij = IPDB.get_ip_asymmetric_matrix("ChemSep PR", [s.cas for s in subs], "kij")
+        kw = dict(Tcs=[s.Tc for s in subs], Pcs=[s.Pc for s in subs], omegas=[s.omega for s in subs], kijs=kij)
         eos = PRMIX if model == "pr" else SRKMIX
-        g = CEOSGas(eos, kw, HeatCapacityGases=p.HeatCapacityGases).to(T=T_, P=P_, zs=ys)
-        l = CEOSLiquid(eos, kw, HeatCapacityGases=p.HeatCapacityGases).to(T=T_, P=P_, zs=ys)
+        g = CEOSGas(eos, kw).to(T=T_, P=P_, zs=ys)
+        l = CEOSLiquid(eos, kw).to(T=T_, P=P_, zs=ys)
         st = min((g, l), key=lambda ph: ph.G_dep())
         phis = st.phis()
         rows = res.section(f"{model.upper()} with van der Waals mixing rules (ChemSep kij)", [

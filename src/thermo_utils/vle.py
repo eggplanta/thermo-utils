@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from scipy.optimize import brentq
 
+from thermo_utils import substances
 from thermo_utils.activity import GEModel
 from thermo_utils.units import R
 
@@ -165,6 +166,8 @@ class PhiPhi:
         from thermo.interaction_parameters import IPDB
         self.subs = subs
         cas = [s.cas for s in subs]
+        if substances.AIR_CAS in cas:
+            raise ValueError("Air is pseudo-pure and cannot enter a φ-φ flash: use nitrogen and oxygen.")
         consts, corrs = ChemicalConstantsPackage.from_IDs(cas)
         kij = IPDB.get_ip_asymmetric_matrix("ChemSep PR", cas, "kij")
         kw = dict(Tcs=consts.Tcs, Pcs=consts.Pcs, omegas=consts.omegas, kijs=kij)

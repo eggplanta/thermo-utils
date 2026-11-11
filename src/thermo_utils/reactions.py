@@ -121,7 +121,10 @@ def _parse_side(text, sign, default_phase):
             raw = m.group(1).replace(",", ".")
             nu = float(raw.split("/")[0]) / float(raw.split("/")[1]) if "/" in raw else float(raw)
             token = m.group(2).strip()
-        out.append(Species(substances.get(token), sign * nu, phase))
+        sub = substances.get(token)
+        if sub.cas == substances.AIR_CAS:
+            raise ValueError("Air is a mixture: write O2 and N2 (about 3.76 mol N2 per mol O2).")
+        out.append(Species(sub, sign * nu, phase))
     return out
 
 

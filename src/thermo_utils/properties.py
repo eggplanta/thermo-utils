@@ -86,7 +86,7 @@ def substance_info(sub):
             row("UNIQUAC r", sub.r), row("UNIQUAC q", sub.q),
             row("UNIFAC groups", ", ".join(f"{k}×{v}" for k, v in sub.unifac_groups.items())),
         ])
-    res.notes.append("Data: chemicals/thermo databanks (DIPPR, CRC, ChemSep) and CoolProp.")
+    res.notes.append(sub.note or "Data: chemicals/thermo databanks (DIPPR, CRC, ChemSep) and CoolProp.")
     return res
 
 
@@ -258,7 +258,7 @@ def property_change(sub, T1=None, P1=None, V1=None, x1=None, T2=None, P2=None, V
             row("-S_R(state 1)", -s1.SR, S), row("ΔS ideal gas", dS_ig, S), row("+S_R(state 2)", s2.SR, S),
         ])
     res.notes.append("← marks the values found by the calculation.")
-    res.notes += s1.notes + s2.notes
+    res.notes += [n for n in dict.fromkeys(s1.notes + s2.notes)]
     res.data = deltas
     return res
 
@@ -291,7 +291,7 @@ def _solve_pair(sub, spec1, spec2, prop, delta, model):
 
 def _solve_state(sub, k, v, prop, target, model):
     from scipy.optimize import brentq
-    t_max = 6000.0 if model != "coolprop" else pure.CP.PropsSI("Tmax", sub.coolprop)
+    t_max = pure.T_MAX
     t_min = pure._t_low(sub, model)
     v_min = 0.25 * sub.Vc if sub.Vc else 1e-5
     if k == "V":
@@ -347,6 +347,8 @@ def saturation(sub, T_=None, P_=None, model="auto"):
         corr.append(row("ΔHvap at Tb, Riedel", Hn, E))
         if T_sat < sub.Tc:
             corr.append(row("ΔHvap at Tsat, Watson", watson(sub, Hn, sub.Tb, T_sat), E))
+    if sub.note:
+        res.notes.append(sub.note)
     res.plot = lambda: _plot_psat(sub, model, T_sat, P_sat)
     res.plot_name = f"psat_{sub.name}"
     return res
