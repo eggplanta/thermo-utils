@@ -8,7 +8,7 @@ from thermo_utils import pure
 from thermo_utils.result import Result, row
 from thermo_utils.units import (
     DIMENSIONLESS as D, MOLAR_ENERGY as E, MOLAR_ENTROPY as S, MOLAR_VOLUME as V,
-    PRESSURE as P, TEMPERATURE as T, R,
+    PRESSURE as P, TEMPERATURE as T, TYPED, R,
 )
 
 COMPARE = ["coolprop", "pr-fit", "pr", "srk", "rk", "vdw", "virial", "ideal"]
@@ -241,7 +241,7 @@ def property_change(sub, T1=None, P1=None, V1=None, x1=None, T2=None, P2=None, V
         s1, s2 = _solve_pair(sub, spec1, spec2, DELTAS[key], value, model)
         label = f"Δ{DELTAS[key]} = {_f(value, S if key == 'dS' else E)}"
     res = Result(f"Property change of {sub.name}", model=model)
-    res.pair = (_pvt_rows(s1, spec1), label, _pvt_rows(s2, spec2))
+    res.pair = (_pvt_rows(s1, spec1, "1"), label, _pvt_rows(s2, spec2, "2"))
     if given:
         p_ = DELTAS[key]
         res.equations.append(f"{p_}2 = {p_}1 + Δ{p_}: the missing T, P or V is found by root solving")
@@ -257,7 +257,7 @@ def property_change(sub, T1=None, P1=None, V1=None, x1=None, T2=None, P2=None, V
             row("-H_R(state 1)", -s1.HR, E), row("ΔH ideal gas", dH_ig, E), row("+H_R(state 2)", s2.HR, E),
             row("-S_R(state 1)", -s1.SR, S), row("ΔS ideal gas", dS_ig, S), row("+S_R(state 2)", s2.SR, S),
         ])
-    res.notes.append("← marks the values found by the calculation.")
+    res.notes.append('The "←" marks the values found by the calculation.')
     res.notes += [n for n in dict.fromkeys(s1.notes + s2.notes)]
     res.data = deltas
     return res
@@ -267,14 +267,13 @@ def _clean(d, a, b):
     return 0.0 if abs(d) < 1e-9 * (abs(a) + abs(b) + 1) else d
 
 
-def _pvt_rows(st, spec):
+def _pvt_rows(st, spec, i):
     def mark(k, value, kind):
-        r = row(k, value, kind)
-        return r if k in spec else (r[0], r[1] + " ←")
+        return (*row(k, value, kind, TYPED.get(k + i)), "" if k in spec else "←")
     phase = st.phase
     if phase.startswith("two-phase ("):
         phase = phase.replace("two-phase (vapor fraction ", "two-phase, x = ")[:-1]
-    return [row("Phase", phase), mark("T", st.T, T), mark("P", st.P, P), mark("V", st.V, V)]
+    return [(*row("Phase", phase), ""), mark("T", st.T, T), mark("P", st.P, P), mark("V", st.V, V)]
 
 
 def _solve_pair(sub, spec1, spec2, prop, delta, model):

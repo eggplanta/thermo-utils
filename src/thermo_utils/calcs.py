@@ -10,7 +10,7 @@ from thermo_utils.pure import MODELS
 from thermo_utils.units import (
     CONCENTRATION, LENGTH, MASS_FLOW, MOLAR_ENERGY, MOLAR_ENTROPY, MOLAR_FLOW, PRESSURE, TEMPERATURE,
     MOLAR_VOLUME,
-    parse_quantity,
+    _NUMBER, display, parse_quantity, set_molar_mass,
 )
 
 SUBSTANCE = "substance"
@@ -53,11 +53,19 @@ def parse_value(f, text):
             return f.default
         raise ValueError(f"{f.label} is required")
     if f.type == SUBSTANCE:
-        return substances.get(text)
+        sub = substances.get(text)
+        set_molar_mass(sub.MW)
+        return sub
     if f.type == SUBSTANCES:
-        return [substances.get(t) for t in _split(text)]
+        subs = [substances.get(t) for t in _split(text)]
+        set_molar_mass(subs[0].MW if len(subs) == 1 else None)
+        return subs
     if f.type == QUANTITY:
-        return parse_quantity(text, f.qkind)
+        value = parse_quantity(text, f.qkind)
+        unit = _NUMBER.match(text.replace(",", ".")).group(2)
+        if unit:
+            display.adopt(f.qkind, unit, name=f.name)
+        return value
     if f.type == NUMBER:
         return float(text.replace(",", ".")) if "/" not in text else _ratio(text)
     if f.type == INTEGER:

@@ -14,6 +14,7 @@ from rich.text import Text
 
 from thermo_utils import __version__, calcs, equations, plots, properties
 from thermo_utils.units import DEFAULT_INPUT_UNITS, display, units_of
+from thermo_utils.units import _norm as _norm_unit, label as unit_label
 
 warnings.filterwarnings("ignore")
 console = Console(highlight=False)
@@ -68,14 +69,16 @@ def _box(title, rows, width):
     table = Table(show_header=False, box=None, padding=(0, 1))
     table.add_column(style="bold")
     table.add_column()
-    for label, value in rows:
-        table.add_row(label, value)
+    table.add_column(style=f"bold {ACCENT}", justify="center", min_width=3)
+    for label, value, mark in rows:
+        table.add_row(label, value, mark)
     return Panel(table, title=f"[b]{title}[/b]", title_align="left", border_style=ACCENT, width=width)
 
 
 def show_pair(pair):
     rows1, label, rows2 = pair
-    width = max(len(a) for a, _ in rows1 + rows2) + max(len(b) for _, b in rows1 + rows2) + 8
+    rows = rows1 + rows2
+    width = max(len(r[0]) for r in rows) + max(len(r[1]) for r in rows) + 13
     b1, b2 = _box("State 1", rows1, width), _box("State 2", rows2, width)
     line = max(len(label), 8)
     if console.width >= 2 * width + line + 5:
@@ -271,7 +274,7 @@ def _prompt_field(f):
         return select(f.label, [(k, v) for k, v in f.choices.items()], f.default)
     hint = ""
     if f.type == calcs.QUANTITY:
-        hint = f" [dim]({DEFAULT_INPUT_UNITS[f.qkind] or '-'} unless you type a unit)[/dim]"
+        hint = f" [dim]({unit_label(DEFAULT_INPUT_UNITS[f.qkind]) or '-'} unless you type a unit)[/dim]"
     elif f.type == calcs.CHOICE:
         hint = f" [dim]({' / '.join(f.choices)})[/dim]"
     if f.default is not None:
@@ -300,6 +303,21 @@ def _ask_state(f, i):
         console.print("  [red]Give T or P (or both).[/red]")
 
 
+def _ask_spec(f, i, limit):
+    """Ask T, P, V of one state, stopping once it has `limit` values."""
+    while True:
+        out = {}
+        for k in ("T", "P", "V"):
+            if len(out) == limit:
+                break
+            v = _prompt_field(f[k + i])
+            if v is not None:
+                out[k] = v
+        if len(out) == limit or (limit == 2 and len(out) == 1):
+            return out
+        console.print(f"  [red]State {i} needs {'one value' if limit == 1 else 'one or two values'}.[/red]")
+
+
 def _ask_delta(calc):
     f = {x.name: x for x in calc.fields}
     kwargs = {"sub": _prompt_field(f["sub"])}
@@ -310,25 +328,35 @@ def _ask_delta(calc):
     else:
         key = select("Given property", [(k, f"Δ{p}") for k, p in properties.DELTAS.items()])
         kwargs[key] = _prompt_field(replace(f[key], optional=False))
-        console.print("  [dim]Leave blank what you don't know: three values in total.[/dim]")
-        while True:
-            specs = [{k: _prompt_field(f[k + i]) for k in ("T", "P", "V")} for i in "12"]
-            specs = [{k: v for k, v in sp.items() if v is not None} for sp in specs]
-            if sorted(map(len, specs)) == [1, 2]:
-                break
-            console.print("  [red]Give two values for one state and one for the other.[/red]")
+        console.print("  [dim]Leave blank what you don't know: two values for one state, one for the other.[/dim]")
+        specs = [_ask_spec(f, "1", 2), None]
+        specs[1] = _ask_spec(f, "2", 3 - len(specs[0]))
         for i, sp in zip("12", specs):
             kwargs.update({k + i: v for k, v in sp.items()})
     kwargs["model"] = _prompt_field(f["model"])
     return kwargs
 
 
-CUSTOM = {"delta": _ask_delta}
+def _ask_pair(calc, third):
+    """Ask T and P; ask the third input only if one is missing."""
+    kwargs = {}
+    for f in calc.fields:
+        if f.name == third and kwargs.get("T_") is not None and kwargs.get("P_") is not None:
+            continue
+        kwargs[f.name] = _prompt_field(f)
+    return kwargs
+
+
+CUSTOM = {
+    "delta": _ask_delta,
+    "pvt": lambda calc: _ask_pair(calc, "V_"),
+    "state": lambda calc: _ask_pair(calc, "x"),
+}
 
 
 def run_interactive(calc):
     console.rule(f"[b]{calc.title}[/b]", style=ACCENT)
-    if calc.help and calc.id not in CUSTOM:
+    if calc.help and calc.id != "delta":
         console.print(f"[dim]{calc.help}[/dim]")
     if calc.id in CUSTOM:
         kwargs = CUSTOM[calc.id](calc)
@@ -344,11 +372,11 @@ def run_interactive(calc):
 def units_menu():
     console.rule("[b]Display units[/b]", style=ACCENT)
     for kind in ("temperature", "pressure", "molar_volume", "molar_energy", "molar_entropy", "power"):
-        options = units_of(kind)
+        options = [unit_label(o) for o in units_of(kind)]
         current = display.unit_for(kind)
         text = ask_text(f"  {kind.replace('_', ' ')} [dim]({', '.join(options)}) [{current}][/dim]") or current
-        if text.lower() in [o.lower() for o in options]:
-            setattr(display, kind, text)
+        if _norm_unit(text) in [_norm_unit(o) for o in options]:
+            display.adopt(kind, text, force=True)
         else:
             console.print(f"  [red]Unknown unit, keeping {current}[/red]")
 
@@ -395,7 +423,7 @@ def _apply_units(t_unit, p_unit, e_unit, v_unit):
     for kind, unit in (("temperature", t_unit), ("pressure", p_unit), ("molar_energy", e_unit),
                        ("molar_volume", v_unit)):
         if unit:
-            setattr(display, kind, unit)
+            display.adopt(kind, unit, force=True)
 
 
 @app.callback(invoke_without_command=True)
