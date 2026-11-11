@@ -356,6 +356,25 @@ def two_phase_state(sub, T=None, P=None, x=0.5, model="auto"):
     return mix
 
 
+def state_from(sub, T=None, P=None, V=None, model="auto"):
+    """State from any two of T, P, V, including the two-phase region."""
+    if sum(v is not None for v in (T, P, V)) != 2:
+        raise ValueError("Give exactly two of T, P and V.")
+    model = resolve_model(sub, model)
+    if V is None:
+        return state(sub, T, P, model)
+    if T is not None and P is not None:
+        raise ValueError("Give exactly two of T, P and V.")
+    if model == "coolprop" or model in _CUBICS:
+        try:
+            _, _, L, Vap = saturation(sub, T, P, model)
+        except Exception:
+            L = None
+        if L is not None and L.V < V < Vap.V:
+            return two_phase_state(sub, T, P, (V - L.V) / (Vap.V - L.V), model)
+    return state_TV(sub, T, V, model) if T is not None else state_PV(sub, P, V, model)
+
+
 def state_PH(sub, P, H, model="auto"):
     return _solve_T(sub, P, H, "H", model)
 

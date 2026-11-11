@@ -42,6 +42,7 @@ Run `thermo-utils` to open the interactive menu (Esc exits; the program closes a
 
 ```bash
 thermo-utils delta water T1=25C P1=1atm T2=300C P2=20bar
+thermo-utils delta nitrogen T1=300 P1=1bar V2=3117cm3/mol dS=0
 thermo-utils pump water T1=25C P1=1atm P2=50bar efficiency=0.75 flow=10kg/s
 thermo-utils diagram ethanol,water P=1atm --plot --open
 thermo-utils gibbs CH4,H2O,CO,CO2,H2 T=1000 P=1 feed=CH4=2,H2O=3
@@ -59,7 +60,8 @@ thermo-utils info ammonia   # databank values of a substance
 **Pure fluids**
 - PVT with ideal gas, virial, van der Waals, RK, SRK, Peng-Robinson, fitted Peng-Robinson and reference EOS, with a side-by-side comparison
 - State properties: V, Z, H, S, U, G, A, Cp, Cv, φ, fugacity, κ, β, μJT, speed of sound
-- Property changes ΔH, ΔS, ΔU, ΔG, ΔA between two states, including phase change, with the residual-property path
+- Property changes ΔH, ΔS, ΔU, ΔG, ΔA between two states given by any two of T, P, V (phase changes included), with the residual-property path
+- The reverse: the missing T, P or V of a state for a given ΔH, ΔS, ΔU, ΔG or ΔA (e.g. isentropic compression with ΔS = 0)
 - Saturation (Psat, Tsat, ΔHvap)
 
 **Heat effects**

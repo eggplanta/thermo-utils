@@ -206,40 +206,112 @@ def _cp_derivatives(sub, st):
     return rows
 
 
-def _state_from(sub, T_, P_, x, model):
+def _state_from(sub, T_, P_, x, model, V_=None):
     if x is not None:
-        if (T_ is None) == (P_ is None):
+        if (T_ is None) == (P_ is None) or V_ is not None:
             raise ValueError("For a two-phase state give vapor fraction x and either T or P.")
         return pure.two_phase_state(sub, T_, P_, x, model)
-    if T_ is None or P_ is None:
-        raise ValueError("Give T and P (or vapor fraction x with T or P).")
-    return pure.state(sub, T_, P_, model)
+    if sum(v is not None for v in (T_, P_, V_)) != 2:
+        raise ValueError("Each state needs two of T, P and V (or vapor fraction x with T or P).")
+    return pure.state_from(sub, T_, P_, V_, model)
 
 
 # Property change
 
-def property_change(sub, T1=None, P1=None, x1=None, T2=None, P2=None, x2=None, model="auto"):
-    """ΔH, ΔS, ΔU, ΔG, ΔA between two states of a pure substance."""
-    s1 = _state_from(sub, T1, P1, x1, model)
-    s2 = _state_from(sub, T2, P2, x2, model)
-    res = Result(f"Property change of {sub.name}", model=pure.resolve_model(sub, model))
-    res.section("State 1", _state_rows(s1, False))
-    res.section("State 2", _state_rows(s2, False))
-    deltas = {"ΔH": s2.H - s1.H, "ΔS": s2.S - s1.S, "ΔU": s2.U - s1.U, "ΔG": s2.G - s1.G,
-              "ΔA": s2.A - s1.A}
-    rows = res.section(f"Changes 1 -> 2 ({_model_label(sub, model)})")
+DELTAS = {"dU": "U", "dH": "H", "dS": "S", "dG": "G", "dA": "A"}
+
+
+def property_change(sub, T1=None, P1=None, V1=None, x1=None, T2=None, P2=None, V2=None, x2=None,
+                    dU=None, dH=None, dS=None, dG=None, dA=None, model="auto"):
+    """ΔH, ΔS, ΔU, ΔG, ΔA between two states, or the missing state for a given Δ."""
+    model = pure.resolve_model(sub, model)
+    given = {k: v for k, v in dict(dU=dU, dH=dH, dS=dS, dG=dG, dA=dA).items() if v is not None}
+    spec1 = {k: v for k, v in dict(T=T1, P=P1, V=V1).items() if v is not None}
+    spec2 = {k: v for k, v in dict(T=T2, P=P2, V=V2).items() if v is not None}
+    if not given:
+        s1 = _state_from(sub, T1, P1, x1, model, V1)
+        s2 = _state_from(sub, T2, P2, x2, model, V2)
+        label = ""
+    else:
+        if len(given) > 1:
+            raise ValueError("Give only one of ΔU, ΔH, ΔS, ΔG, ΔA.")
+        if x1 is not None or x2 is not None:
+            raise ValueError("With a given Δ, describe the states with T, P and V.")
+        (key, value), = given.items()
+        s1, s2 = _solve_pair(sub, spec1, spec2, DELTAS[key], value, model)
+        label = f"Δ{DELTAS[key]} = {_f(value, S if key == 'dS' else E)}"
+    res = Result(f"Property change of {sub.name}", model=model)
+    res.pair = (_pvt_rows(s1, spec1), label, _pvt_rows(s2, spec2))
+    if given:
+        p_ = DELTAS[key]
+        res.equations.append(f"{p_}2 = {p_}1 + Δ{p_}: the missing T, P or V is found by root solving")
+    deltas = {f"Δ{p}": _clean(getattr(s2, p) - getattr(s1, p), getattr(s1, p), getattr(s2, p))
+              for p in ("H", "S", "U", "G", "A")}
+    rows = res.section(f"Changes 1 -> 2 ({model})")
     for k, v in deltas.items():
         rows.append(row(k, v, S if k == "ΔS" else E))
-    if s1.HR is not None and s2.HR is not None:
+    if s1.HR is not None and s2.HR is not None and model != "ideal":
         dH_ig = sub.H_ig(s1.T, s2.T)
         dS_ig = sub.S_ig(s1.T, s2.T) - R * math.log(s2.P / s1.P)
         res.section("Residual-property path", [
             row("-H_R(state 1)", -s1.HR, E), row("ΔH ideal gas", dH_ig, E), row("+H_R(state 2)", s2.HR, E),
             row("-S_R(state 1)", -s1.SR, S), row("ΔS ideal gas", dS_ig, S), row("+S_R(state 2)", s2.SR, S),
         ])
+    res.notes.append("← marks the values found by the calculation.")
     res.notes += s1.notes + s2.notes
     res.data = deltas
     return res
+
+
+def _clean(d, a, b):
+    return 0.0 if abs(d) < 1e-9 * (abs(a) + abs(b) + 1) else d
+
+
+def _pvt_rows(st, spec):
+    def mark(k, value, kind):
+        r = row(k, value, kind)
+        return r if k in spec else (r[0], r[1] + " ←")
+    phase = st.phase
+    if phase.startswith("two-phase ("):
+        phase = phase.replace("two-phase (vapor fraction ", "two-phase, x = ")[:-1]
+    return [row("Phase", phase), mark("T", st.T, T), mark("P", st.P, P), mark("V", st.V, V)]
+
+
+def _solve_pair(sub, spec1, spec2, prop, delta, model):
+    """Complete the state with one known property so that M2 − M1 = Δ."""
+    if sorted((len(spec1), len(spec2))) != [1, 2]:
+        raise ValueError("Give three of T, P, V in total: two for one state and one for the other.")
+    first_known = len(spec1) == 2
+    known = pure.state_from(sub, model=model, **(spec1 if first_known else spec2))
+    target = getattr(known, prop) + (delta if first_known else -delta)
+    (k, v), = (spec2 if first_known else spec1).items()
+    other = _solve_state(sub, k, v, prop, target, model)
+    return (known, other) if first_known else (other, known)
+
+
+def _solve_state(sub, k, v, prop, target, model):
+    from scipy.optimize import brentq
+    t_max = 6000.0 if model != "coolprop" else pure.CP.PropsSI("Tmax", sub.coolprop)
+    t_min = pure._t_low(sub, model)
+    v_min = 0.25 * sub.Vc if sub.Vc else 1e-5
+    if k == "V":
+        build, grid = (lambda t: pure.state_from(sub, T=t, V=v, model=model)), np.geomspace(t_min, t_max, 150)
+    elif k == "T":
+        build, grid = (lambda w: pure.state_from(sub, T=v, V=w, model=model)), np.geomspace(v_min, R * v / 1.0, 150)
+    else:
+        build, grid = (lambda w: pure.state_from(sub, P=v, V=w, model=model)), np.geomspace(v_min, R * t_max / v, 150)
+
+    def f(x):
+        try:
+            return getattr(build(x), prop) - target
+        except Exception:
+            return float("nan")
+
+    vals = [f(x) for x in grid]
+    for a, b, fa, fb in zip(grid, grid[1:], vals, vals[1:]):
+        if np.isfinite(fa) and np.isfinite(fb) and fa * fb <= 0:
+            return build(a if fa == 0 else brentq(f, a, b, xtol=1e-12, rtol=1e-12))
+    raise ValueError(f"No state with this {k} reaches the given Δ{prop}.")
 
 
 def _molar_flow(sub, flow):

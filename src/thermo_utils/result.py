@@ -13,6 +13,8 @@ class Result:
     plot_name: str = "plot"
     data: dict = field(default_factory=dict)
     model: str | None = None
+    pair: tuple | None = None
+    equations: list = field(default_factory=list)
 
     def section(self, heading, rows=None):
         self.sections.append((heading, list(rows or [])))

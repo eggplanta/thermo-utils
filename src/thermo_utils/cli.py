@@ -3,14 +3,16 @@ import shutil
 import sys
 import warnings
 from contextlib import contextmanager
+from dataclasses import replace
 from typing import List, Optional
 
 import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
 
-from thermo_utils import __version__, calcs, equations, plots
+from thermo_utils import __version__, calcs, equations, plots, properties
 from thermo_utils.units import DEFAULT_INPUT_UNITS, display, units_of
 
 warnings.filterwarnings("ignore")
@@ -62,9 +64,42 @@ def show_equations(lines):
         console.print(Panel(body, title="[b]Equations[/b]", title_align="left", border_style="dim"))
 
 
+def _box(title, rows, width):
+    table = Table(show_header=False, box=None, padding=(0, 1))
+    table.add_column(style="bold")
+    table.add_column()
+    for label, value in rows:
+        table.add_row(label, value)
+    return Panel(table, title=f"[b]{title}[/b]", title_align="left", border_style=ACCENT, width=width)
+
+
+def show_pair(pair):
+    rows1, label, rows2 = pair
+    width = max(len(a) for a, _ in rows1 + rows2) + max(len(b) for _, b in rows1 + rows2) + 8
+    b1, b2 = _box("State 1", rows1, width), _box("State 2", rows2, width)
+    line = max(len(label), 8)
+    if console.width >= 2 * width + line + 5:
+        arrow = Text(justify="center")
+        if label:
+            arrow.append(label + "\n", style="bold")
+        arrow.append("━" * line + "▶", style=ACCENT)
+        grid = Table.grid(padding=(0, 2))
+        grid.add_column()
+        grid.add_column(vertical="middle")
+        grid.add_column()
+        grid.add_row(b1, arrow, b2)
+        console.print(grid)
+    else:
+        console.print(b1)
+        console.print(Text(f"{'':>{width // 2 - 1}}▼  {label}", style=f"bold {ACCENT}"))
+        console.print(b2)
+
+
 def show_result(res, calc=None):
     if calc is not None:
-        show_equations(equations.for_calc(calc.id, res.model))
+        show_equations(equations.for_calc(calc.id, res.model) + res.equations)
+    if res.pair:
+        show_pair(res.pair)
     for heading, rows in res.sections:
         table = Table(show_header=False, box=None, padding=(0, 2))
         table.add_column(style="bold")
@@ -104,10 +139,14 @@ def _read_key_posix():
     fd = sys.stdin.fileno()
     b = os.read(fd, 1)
     if b == b"\x1b":
-        if select.select([fd], [], [], 0.05)[0]:
-            os.read(fd, 16)
+        if not select.select([fd], [], [], 0.05)[0]:
+            return "esc"
+        if os.read(fd, 1) not in (b"[", b"O"):
             return ""
-        return "esc"
+        c = os.read(fd, 1)
+        while c and not (c.isalpha() or c == b"~"):
+            c = os.read(fd, 1)
+        return {b"A": "up", b"B": "down"}.get(c, "")
     if b and b[0] >= 0xC0:
         b += os.read(fd, 3 if b[0] >= 0xF0 else 2 if b[0] >= 0xE0 else 1)
     return b.decode(errors="ignore")
@@ -133,8 +172,7 @@ def _read_key_windows():
     import msvcrt
     ch = msvcrt.getwch()
     if ch in ("\x00", "\xe0"):
-        msvcrt.getwch()
-        return ""
+        return {"H": "up", "P": "down"}.get(msvcrt.getwch(), "")
     return "esc" if ch == "\x1b" else ch
 
 
@@ -146,6 +184,59 @@ def ask_text(prompt):
     with _cbreak():
         console.print(prompt + " ", end="")
         return _read_line(_read_key_windows if os.name == "nt" else _read_key_posix)
+
+
+def select(label, options, default=None):
+    """Arrow-key choice; options is a list of (key, description)."""
+    keys = [k for k, _ in options]
+    if not sys.stdin.isatty():
+        while True:
+            text = ask_text(f"  {label} [dim]({' / '.join(keys)})[/dim]").lower() or default or keys[0]
+            if text in keys:
+                return text
+            console.print(f"  [red]Options: {', '.join(keys)}[/red]")
+    i = keys.index(default) if default in keys else 0
+    width = max(len(k) for k in keys)
+
+    def draw(first):
+        if not first:
+            sys.stdout.write(f"\x1b[{len(options)}A")
+        for j, (k, desc) in enumerate(options):
+            sys.stdout.write("\r\x1b[2K")
+            sys.stdout.flush()
+            pointer = f"[b {ACCENT}]❯ {k:<{width}}[/]" if j == i else f"  {k:<{width}}"
+            text = f"    {pointer}  [dim]{desc}[/dim]" if desc != k else f"    {pointer}"
+            console.print(text, no_wrap=True, overflow="ellipsis")
+
+    console.print(f"  {label} [dim](use ↑ ↓ to select, Enter to confirm)[/dim]")
+    sys.stdout.write("\x1b[?25l")
+    read = _read_key_windows if os.name == "nt" else _read_key_posix
+    try:
+        with _cbreak():
+            draw(True)
+            while True:
+                key = read()
+                if key == "up":
+                    i = (i - 1) % len(options)
+                elif key == "down":
+                    i = (i + 1) % len(options)
+                elif key in ("\r", "\n"):
+                    break
+                elif key == "esc":
+                    raise Escape
+                elif key == "\x03":
+                    raise KeyboardInterrupt
+                else:
+                    continue
+                draw(False)
+    finally:
+        sys.stdout.write("\x1b[?25h")
+        sys.stdout.flush()
+    sys.stdout.write(f"\x1b[{len(options) + 1}A\r\x1b[J")
+    sys.stdout.flush()
+    desc = options[i][1]
+    console.print(f"  {label}  {desc if len(desc) <= 30 else keys[i]}")
+    return keys[i]
 
 
 def _read_line(read):
@@ -176,6 +267,8 @@ def _read_line(read):
 # Interactive menu
 
 def _prompt_field(f):
+    if f.type == calcs.CHOICE:
+        return select(f.label, [(k, v) for k, v in f.choices.items()], f.default)
     hint = ""
     if f.type == calcs.QUANTITY:
         hint = f" [dim]({DEFAULT_INPUT_UNITS[f.qkind] or '-'} unless you type a unit)[/dim]"
@@ -193,11 +286,54 @@ def _prompt_field(f):
             console.print(f"  [red]{exc}[/red]")
 
 
+def _ask_state(f, i):
+    while True:
+        out = {k: _prompt_field(f[k + i]) for k in ("T", "P")}
+        out = {k: v for k, v in out.items() if v is not None}
+        if len(out) == 2:
+            return out
+        if len(out) == 1:
+            v = _prompt_field(f["V" + i])
+            if v is not None:
+                return {**out, "V": v}
+            return {**out, "x": _prompt_field(replace(f["x" + i], optional=False))}
+        console.print("  [red]Give T or P (or both).[/red]")
+
+
+def _ask_delta(calc):
+    f = {x.name: x for x in calc.fields}
+    kwargs = {"sub": _prompt_field(f["sub"])}
+    mode = select("Calculate", [("delta", "Δ from two states"), ("state", "a state from a given Δ")])
+    if mode == "delta":
+        for i in "12":
+            kwargs.update({k + i: v for k, v in _ask_state(f, i).items()})
+    else:
+        key = select("Given property", [(k, f"Δ{p}") for k, p in properties.DELTAS.items()])
+        kwargs[key] = _prompt_field(replace(f[key], optional=False))
+        console.print("  [dim]Leave blank what you don't know: three values in total.[/dim]")
+        while True:
+            specs = [{k: _prompt_field(f[k + i]) for k in ("T", "P", "V")} for i in "12"]
+            specs = [{k: v for k, v in sp.items() if v is not None} for sp in specs]
+            if sorted(map(len, specs)) == [1, 2]:
+                break
+            console.print("  [red]Give two values for one state and one for the other.[/red]")
+        for i, sp in zip("12", specs):
+            kwargs.update({k + i: v for k, v in sp.items()})
+    kwargs["model"] = _prompt_field(f["model"])
+    return kwargs
+
+
+CUSTOM = {"delta": _ask_delta}
+
+
 def run_interactive(calc):
     console.rule(f"[b]{calc.title}[/b]", style=ACCENT)
-    if calc.help:
+    if calc.help and calc.id not in CUSTOM:
         console.print(f"[dim]{calc.help}[/dim]")
-    kwargs = {f.name: _prompt_field(f) for f in calc.fields}
+    if calc.id in CUSTOM:
+        kwargs = CUSTOM[calc.id](calc)
+    else:
+        kwargs = {f.name: _prompt_field(f) for f in calc.fields}
     console.print()
     with console.status("Calculating..."):
         res = calc.fn(**kwargs)

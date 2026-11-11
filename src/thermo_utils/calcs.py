@@ -8,7 +8,8 @@ from thermo_utils import (
 )
 from thermo_utils.pure import MODELS
 from thermo_utils.units import (
-    CONCENTRATION, LENGTH, MASS_FLOW, MOLAR_FLOW, PRESSURE, TEMPERATURE, MOLAR_VOLUME,
+    CONCENTRATION, LENGTH, MASS_FLOW, MOLAR_ENERGY, MOLAR_ENTROPY, MOLAR_FLOW, PRESSURE, TEMPERATURE,
+    MOLAR_VOLUME,
     parse_quantity,
 )
 
@@ -128,11 +129,14 @@ CALCS = [
         Field("x", "Vapor fraction (two-phase only)", NUMBER, optional=True), MODEL_FIELD,
     ], "Give T and P, or a vapor fraction with T or P."),
     Calc("delta", PURE, "Property change ΔH, ΔS, ΔU, ΔG, ΔA between two states", properties.property_change, [
-        _sub(), _q("T1", "T1", TEMPERATURE, True), _q("P1", "P1", PRESSURE, True),
-        Field("x1", "Vapor fraction 1 (two-phase only)", NUMBER, optional=True),
-        _q("T2", "T2", TEMPERATURE, True), _q("P2", "P2", PRESSURE, True),
-        Field("x2", "Vapor fraction 2 (two-phase only)", NUMBER, optional=True), MODEL_FIELD,
-    ], "Each state: T and P, or a vapor fraction with T or P. Phase changes are handled."),
+        _sub(),
+        _q("T1", "T1", TEMPERATURE, True), _q("P1", "P1", PRESSURE, True), _q("V1", "V1", MOLAR_VOLUME, True),
+        Field("x1", "Vapor fraction 1", NUMBER, optional=True),
+        _q("T2", "T2", TEMPERATURE, True), _q("P2", "P2", PRESSURE, True), _q("V2", "V2", MOLAR_VOLUME, True),
+        Field("x2", "Vapor fraction 2", NUMBER, optional=True),
+    ] + [_q(k, f"Δ{p}", MOLAR_ENTROPY if k == "dS" else MOLAR_ENERGY, True) for k, p in properties.DELTAS.items()]
+      + [MODEL_FIELD],
+         "Give two of T, P, V for each state, or three in total plus one of ΔU, ΔH, ΔS, ΔG, ΔA."),
     Calc("saturation", PURE, "Saturation: Psat/Tsat, ΔHvap, saturated volumes", properties.saturation, [
         _sub(), _q("T_", "T", TEMPERATURE, True), _q("P_", "P", PRESSURE, True), MODEL_FIELD,
     ], "Give T or P."),
