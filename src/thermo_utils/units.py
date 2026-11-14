@@ -15,6 +15,12 @@ DIMENSIONLESS = "dimensionless"
 LENGTH = "length"
 SURFACE_TENSION = "surface_tension"
 CONCENTRATION = "concentration"
+SPECIFIC_ENERGY = "specific_energy"
+SPECIFIC_ENTROPY = "specific_entropy"
+SPECIFIC_VOLUME = "specific_volume"
+VOLUME = "volume"
+MASS = "mass"
+ENERGY = "energy"
 
 BTU = 1055.05585262
 LB = 0.45359237
@@ -65,6 +71,13 @@ _MASS_FACTORS = {
 }
 _MOLAR_MASS = [None]
 
+_SPECIFIC = {SPECIFIC_ENERGY: MOLAR_ENERGY, SPECIFIC_ENTROPY: MOLAR_ENTROPY, SPECIFIC_VOLUME: MOLAR_VOLUME}
+for _kind, _molar in _SPECIFIC.items():
+    _FACTORS[_kind] = _MASS_FACTORS[_molar]
+_FACTORS[VOLUME] = {"m3": 1.0, "l": 1e-3, "dm3": 1e-3, "cm3": 1e-6, "ml": 1e-6, "ft3": FT3, "in3": 1.6387064e-5}
+_FACTORS[MASS] = {"kg": 1.0, "g": 1e-3, "lb": LB}
+_FACTORS[ENERGY] = {"j": 1.0, "kj": 1e3, "mj": 1e6, "btu": BTU, "kcal": 4184.0, "cal": 4.184}
+
 
 def set_molar_mass(mw):
     """Molar mass in g/mol used by mass-based units (None for mixtures)."""
@@ -85,7 +98,8 @@ _ALIASES = {
     "m³/mol": "m3/mol", "cm³/mol": "cm3/mol", "dm³/mol": "dm3/mol", "m³/kmol": "m3/kmol",
     "kgf/cm²": "kgf/cm2", "j/m²": "j/m2", "mj/m²": "mj/m2", "mol/m³": "mol/m3", "mol/dm³": "mol/dm3",
 }
-_ALIASES.update({"m³/kg": "m3/kg", "cm³/g": "cm3/g", "ft³/lb": "ft3/lb", "ft³/lbmol": "ft3/lbmol"})
+_ALIASES.update({"m³/kg": "m3/kg", "cm³/g": "cm3/g", "ft³/lb": "ft3/lb", "ft³/lbmol": "ft3/lbmol",
+                 "m³": "m3", "dm³": "dm3", "cm³": "cm3", "ft³": "ft3", "in³": "in3", "cc": "cm3"})
 for _key in [k for t in (_FACTORS[MOLAR_ENTROPY], _MASS_FACTORS[MOLAR_ENTROPY]) for k in t]:
     _e, _n, _t = re.match(r"(.+)/\((.+)·(.)\)", _key).groups()
     for _form in ("{e}/{n}/{t}", "{e}/{n}{t}", "{e}/({n}{t})", "{e}/({n}.{t})", "{e}/{n}.{t}", "{e}/{n}·{t}",
@@ -97,6 +111,8 @@ DEFAULT_INPUT_UNITS = {
     MOLAR_ENERGY: "J/mol", MOLAR_ENTROPY: "J/(mol·K)", MASS_FLOW: "kg/s",
     MOLAR_FLOW: "mol/s", POWER: "kW", DIMENSIONLESS: "",
     LENGTH: "m", SURFACE_TENSION: "mN/m", CONCENTRATION: "mol/L",
+    SPECIFIC_ENERGY: "kJ/kg", SPECIFIC_ENTROPY: "kJ/(kg·K)", SPECIFIC_VOLUME: "m3/kg",
+    VOLUME: "L", MASS: "kg", ENERGY: "kJ",
 }
 
 
@@ -113,6 +129,12 @@ class DisplayUnits:
     length: str = "m"
     surface_tension: str = "mN/m"
     concentration: str = "mol/L"
+    specific_energy: str = "kJ/kg"
+    specific_entropy: str = "kJ/(kg·K)"
+    specific_volume: str = "m³/kg"
+    volume: str = "L"
+    mass: str = "kg"
+    energy: str = "kJ"
 
     def unit_for(self, kind):
         return getattr(self, kind, "")
@@ -125,6 +147,8 @@ class DisplayUnits:
             setattr(self, kind, label(unit))
             _ADOPTED.add(kind)
             basis = _MASS_BASIS.get(_norm(unit))
+            if kind in _SPECIFIC and basis:
+                basis = {k: basis[m] for k, m in _SPECIFIC.items()}
             for other, u in (basis or {}).items():
                 if other != kind and other not in _ADOPTED:
                     setattr(self, other, label(u))
@@ -168,6 +192,8 @@ _LABELS = {
     "m": "m", "cm": "cm", "mm": "mm", "um": "µm", "µm": "µm", "nm": "nm", "in": "in",
     "n/m": "N/m", "mn/m": "mN/m", "dyn/cm": "dyn/cm", "j/m2": "J/m²", "mj/m2": "mJ/m²",
     "mol/l": "mol/L", "mmol/l": "mmol/L", "mol/m3": "mol/m³", "mol/dm3": "mol/dm³",
+    "m3": "m³", "l": "L", "dm3": "dm³", "cm3": "cm³", "ml": "mL", "ft3": "ft³", "in3": "in³",
+    "kg": "kg", "g": "g", "lb": "lb", "j": "J", "kj": "kJ", "mj": "MJ", "btu": "Btu", "kcal": "kcal", "cal": "cal",
 }
 
 

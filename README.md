@@ -22,7 +22,10 @@ You only type the substance name: Tc, Pc, ω, Cp, ΔHf, Psat and the other data 
 <table>
   <tr>
     <td align="center"><img src="https://raw.githubusercontent.com/eggplanta/thermo-utils/main/docs/screenshots/menu.png" width="420"><br><sub>Main menu</sub></td>
-    <td align="center"><img src="https://raw.githubusercontent.com/eggplanta/thermo-utils/main/docs/screenshots/property-change.png" width="420"><br><sub>Property change between two states</sub></td>
+    <td align="center"><img src="https://raw.githubusercontent.com/eggplanta/thermo-utils/main/docs/screenshots/cycle.png" width="420"><br><sub>Brayton cycle with its T-s diagram</sub></td>
+  </tr>
+  <tr>
+    <td align="center" colspan="2"><img src="https://raw.githubusercontent.com/eggplanta/thermo-utils/main/docs/screenshots/property-change.png" width="420"><br><sub>Property change between two states</sub></td>
   </tr>
 </table>
 
@@ -44,6 +47,10 @@ Run `thermo-utils` to open the interactive menu (Esc exits; the program closes a
 thermo-utils delta water T1=25C P1=1atm T2=300C P2=20bar
 thermo-utils delta nitrogen T1=300 P1=1bar V2=3117cm3/mol dS=0
 thermo-utils pump water T1=25C P1=1atm P2=50bar efficiency=0.75 flow=10kg/s
+thermo-utils otto T1=27C P1=100kPa r=8 q_in=800
+thermo-utils brayton T1=300 T3=1300 w_net=300 eta_c=0.85     # finds rp
+thermo-utils rankine P1=10kPa P3=3MPa x3=1 Wdot=10MW eta_t=0.87
+thermo-utils step steam-turbine P1=3MPa T1=350C P2=10kPa x2=0.9
 thermo-utils diagram ethanol,water P=1atm --plot --open
 thermo-utils gibbs CH4,H2O,CO,CO2,H2 T=1000 P=1 feed=CH4=2,H2O=3
 thermo-utils list           # every calculation and its inputs
@@ -53,6 +60,7 @@ thermo-utils info ammonia   # databank values of a substance
 - **Units:** type them with the value (`25C`, `10atm`, `300cm3/mol`, `5kmol/h`), with no space so no quotes are needed. Without a unit the defaults are K, bar, cm³/mol and J/mol. Output units can be changed in the menu (`u`) or with `--T-unit`, `--P-unit`, `--E-unit`, `--V-unit`.
 - **Substances:** English names, formulas or CAS numbers (`water`, `H2O`, `7732-18-5`), right after the calculation name. `air` is available as a pseudo-pure fluid (reference EOS of Lemmon et al., 2000). Mixtures are comma separated (`ethanol,water`).
 - **Devices:** `pump`, `compressor`, `turbine` and `valve` are shortcuts for `device kind=...`.
+- **Cycles:** give any values that fix the cycle (states `T1`...`P4`, `v`, `u`, `h`, `s`, `x`, or results like `r`, `rp`, `rc`, `q_in`, `w_net`, `eta`, `mep`, `Wdot`) and the rest is solved. Energies default to kJ/kg. Gas cycles use Cp(T); `k=1.4` switches to the cold air-standard.
 - **Plots:** saved as PNG in `./thermo-plots` (or `$THERMO_UTILS_PLOTS`) and opened on request.
 
 ## Calculations
@@ -70,6 +78,13 @@ thermo-utils info ammonia   # databank values of a substance
 
 **Flow devices**
 - One-step devices: compressor, pump, turbine and valve, with efficiency and power for a given flow
+
+**Power cycles**
+- Otto, Diesel, Brayton and Rankine, solved from any consistent data: known data in, the rest out, in either direction (e.g. r from η, T3 from q_in, rp from w_net, ṁ from the power)
+- Isentropic efficiencies of compressor, turbine, pump and piston strokes; engine power from displacement and rpm
+- Single steps (compression, expansion, heating at constant v or P, compressor, turbine, pump, boiler, condenser) solved the same way
+- Air with Cp(T) on the air-table reference or the cold air-standard (constant k); Rankine with the reference EOS of water (or another fluid)
+- P-v or T-s diagram of the cycle (with the saturation dome for Rankine) and the equipment sketch, drawn in the terminal
 
 **Mixtures**
 - Fugacity of species in mixtures (PR, SRK, virial) and the Lewis-Randall rule

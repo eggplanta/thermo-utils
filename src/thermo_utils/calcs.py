@@ -4,12 +4,12 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from thermo_utils import (
-    activity, chemical_equilibrium, devices, heat, mixtures, properties, substances, surface, vle,
+    activity, chemical_equilibrium, cycles, devices, heat, mixtures, properties, substances, surface, vle,
 )
 from thermo_utils.pure import MODELS
 from thermo_utils.units import (
-    CONCENTRATION, LENGTH, MASS_FLOW, MOLAR_ENERGY, MOLAR_ENTROPY, MOLAR_FLOW, PRESSURE, TEMPERATURE,
-    MOLAR_VOLUME,
+    CONCENTRATION, DIMENSIONLESS, LENGTH, MASS_FLOW, MOLAR_ENERGY, MOLAR_ENTROPY, MOLAR_FLOW, PRESSURE,
+    SPECIFIC_ENTROPY, TEMPERATURE, MOLAR_VOLUME,
     _NUMBER, display, parse_quantity, set_molar_mass,
 )
 
@@ -125,6 +125,7 @@ MIX = "Mixtures"
 PHASE = "Phase equilibrium"
 REACT = "Chemical equilibrium"
 SURF = "Surface phenomena"
+CYCLES = "Power cycles"
 
 CALCS = [
     Calc("info", PURE, "Substance data (Tc, Pc, ω, Cp, ΔHf...)", properties.substance_info, [_sub()]),
@@ -267,6 +268,57 @@ CALCS += [
 ]
 
 
+# Power cycles
+
+GAS_FIELDS = [
+    Field("k", "k = cp/cv (constant Cp)", NUMBER, optional=True, help="Gives the cold air-standard."),
+    _q("cp", "cp (constant Cp)", SPECIFIC_ENTROPY, True),
+]
+
+
+def _var_field(v):
+    if v.kind == DIMENSIONLESS:
+        return Field(v.key, v.label, NUMBER, optional=True)
+    return _q(v.key, v.label, v.kind, True)
+
+
+def _cycle_fields(models):
+    fields, seen = [Field("sub", "Working fluid", SUBSTANCE, optional=True, help="Name, formula or CAS")], set()
+    if any(m.fluid == "gas" for m in models):
+        fields += GAS_FIELDS
+    for m in models:
+        for v in cycles.all_vars(m):
+            if v.key not in seen:
+                seen.add(v.key)
+                fields.append(_var_field(v))
+    return fields
+
+
+def _cycle_fn(model_id):
+    def fn(sub=None, k=None, cp=None, **given):
+        model = cycles.MODELS[model_id]
+        return cycles.run(model_id, sub or substances.get("air" if model.fluid == "gas" else "water"),
+                          k, cp, **given)
+    return fn
+
+
+def _step_fn(kind, sub=None, k=None, cp=None, **given):
+    model = cycles.STEPS[kind]
+    return cycles.run(kind, sub or substances.get("air" if model.fluid == "gas" else "water"), k, cp,
+                      steps=True, **given)
+
+
+CYCLE_HELP = "Give any values that fix the cycle; the rest is solved."
+CALCS += [
+    Calc(m.id, CYCLES, f"{m.title} (any data in, the rest out)", _cycle_fn(m.id), _cycle_fields([m]), CYCLE_HELP)
+    for m in cycles.MODELS.values()
+] + [
+    Calc("step", CYCLES, "One cycle step: compression, heating, turbine, pump...", _step_fn,
+         [Field("kind", "Step", CHOICE, choices=cycles.STEP_DESCRIPTIONS)]
+         + _cycle_fields(list(cycles.STEPS.values())), "Give any values that fix the step; the rest is solved."),
+]
+
+
 def by_id(calc_id):
     for c in CALCS:
         if c.id == calc_id:
@@ -275,7 +327,7 @@ def by_id(calc_id):
 
 
 def groups():
-    out = {g: [] for g in (PURE, HEAT, DEVICES, MIX, PHASE, REACT, SURF)}
+    out = {g: [] for g in (PURE, HEAT, DEVICES, CYCLES, MIX, PHASE, REACT, SURF)}
     for c in CALCS:
         out.setdefault(c.group, []).append(c)
     return out

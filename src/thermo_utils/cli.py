@@ -12,7 +12,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from thermo_utils import __version__, calcs, equations, plots, properties
+from thermo_utils import __version__, calcs, cycles, drawing, equations, plots, properties
 from thermo_utils.units import DEFAULT_INPUT_UNITS, display, units_of
 from thermo_utils.units import _norm as _norm_unit, label as unit_label
 
@@ -62,7 +62,7 @@ def print_logo():
 def show_equations(lines):
     if lines:
         body = "\n".join(lines)
-        console.print(Panel(body, title="[b]Equations[/b]", title_align="left", border_style="dim"))
+        console.print(Panel(Text(body), title="[b]Equations[/b]", title_align="left", border_style="dim"))
 
 
 def _box(title, rows, width):
@@ -103,15 +103,46 @@ def show_result(res, calc=None):
         show_equations(equations.for_calc(calc.id, res.model) + res.equations)
     if res.pair:
         show_pair(res.pair)
+    for heading, headers, rows in res.tables:
+        table = Table(box=None, padding=(0, 1), header_style="bold")
+        for h in headers:
+            table.add_column(h, justify="left" if h in ("State", "Process", "") else "right")
+        for cells in rows:
+            table.add_row(*(Text(t, style=ACCENT if given else None) for t, given in cells))
+        console.print(Panel(table, title=f"[b]{heading}[/b]", title_align="left", border_style=ACCENT, expand=False))
     for heading, rows in res.sections:
         table = Table(show_header=False, box=None, padding=(0, 2))
         table.add_column(style="bold")
         table.add_column()
-        for label, value in rows:
-            table.add_row(label, value)
+        for label, value, *given in rows:
+            table.add_row(label, Text(value, style=ACCENT if given and given[0] else None))
         console.print(Panel(table, title=f"[b]{heading}[/b]", title_align="left", border_style=ACCENT))
+    if res.diagram:
+        show_diagram(res.diagram)
     for note in res.notes:
         console.print(f"[yellow]• {note}[/yellow]")
+
+
+def show_diagram(d):
+    left = drawing.plot(d, accent=ACCENT)
+    right = drawing.equipment(d["equipment"], ACCENT) if d["equipment"] else []
+    lw = max(len(t) for t in left)
+    rw = max((len(t) for t in right), default=0)
+    console.print()
+    if right and console.width >= lw + rw + 6:
+        off = max(0, (len(left) - len(right)) // 2)
+        for i in range(max(len(left), len(right) + off)):
+            t = Text("  ")
+            t.append_text(left[i] if i < len(left) else Text(""))
+            t.pad_right(lw + 6 - len(t))
+            j = i - off
+            if 0 <= j < len(right):
+                t.append_text(right[j])
+            console.print(t, no_wrap=True)
+    else:
+        for t in left + ([Text("")] + right if right else []):
+            console.print(Text("  ").append_text(t), no_wrap=True)
+    console.print()
 
 
 def handle_plot(res, ask=True, save=False, open_it=False):
@@ -347,16 +378,84 @@ def _ask_pair(calc, third):
     return kwargs
 
 
+def _ask_cycle(calc):
+    f = {x.name: x for x in calc.fields}
+    kwargs = {}
+    if calc.id == "step":
+        kwargs["kind"] = _prompt_field(f["kind"])
+        model = cycles.STEPS[kwargs["kind"]]
+    else:
+        model = cycles.MODELS[calc.id]
+    gas = model.fluid == "gas"
+    default = "air" if gas else "water"
+    while True:
+        text = ask_text(f"  {'Gas' if gas else 'Fluid'} [dim][default {default}][/dim]") or default
+        try:
+            kwargs["sub"] = calcs.parse_value(f["sub"], text)
+            break
+        except Exception as exc:
+            console.print(f"  [red]{exc}[/red]")
+    if gas and select("Gas properties", [("cp(T)", "variable Cp(T), as in the air tables"),
+                                         ("cold", "constant Cp (cold air-standard)")]) == "cold":
+        text = ask_text("  k = cp/cv [dim][default 1.4][/dim]") or "1.4"
+        kwargs["k"] = calcs.parse_value(f["k"], text)
+    _show_keys(model)
+    keys = {v.key.lower(): f[v.key] for v in cycles.all_vars(model)}
+    while True:
+        text = ask_text(f"  [b]Known values[/b] [dim](e.g. {EXAMPLES[model.id]})[/dim]\n  =>")
+        try:
+            given = {}
+            for token in text.replace(";", " ").split():
+                if "=" not in token:
+                    raise ValueError(f"'{token}' is not key=value")
+                k, v = token.split("=", 1)
+                if k.lower() not in keys:
+                    raise ValueError(f"Unknown key '{k}'")
+                given[keys[k.lower()].name] = calcs.parse_value(keys[k.lower()], v)
+            if not given:
+                raise ValueError("Type at least one value")
+            return kwargs | given
+        except Exception as exc:
+            console.print(f"  [red]{exc}[/red]")
+
+
+EXAMPLES = {
+    "otto": "T1=27C P1=100kPa r=8 q_in=800", "diesel": "T1=300 P1=95kPa r=18 rc=2",
+    "brayton": "T1=300 rp=10 T3=1400 eta_c=0.85", "rankine": "P1=10kPa P3=3MPa T3=350C",
+    "compression": "T1=300 P1=1bar r=8", "expansion": "T1=1800 P1=60bar r=8",
+    "heat-v": "T1=650 P1=18bar q=800", "heat-p": "T1=900 P1=60bar rc=2",
+    "gas-compressor": "T1=300 P1=1bar rp=8 eta=0.8", "gas-turbine": "T1=1300 P1=8bar rp=8 eta=0.85",
+    "pump": "P1=10kPa P2=3MPa eta=0.85", "steam-turbine": "P1=3MPa T1=350C P2=10kPa",
+    "boiler": "P1=3MPa T1=46C T2=350C", "condenser": "P1=10kPa x1=0.9",
+}
+
+
+def _show_keys(model):
+    n = model.states
+    st = " ".join(cycles.STATE_KEYS[model.fluid].split())
+    table = Table(show_header=False, box=None, padding=(0, 1))
+    table.add_column(style=f"bold {ACCENT}")
+    table.add_column()
+    table.add_row(f"{st}", f"[dim]state {'1-' + str(n) if n > 2 else '1, 2'} properties, e.g. T1, P2, x{n}[/dim]")
+    for v in model.primaries + model.outputs:
+        if not v.key[-1].isdigit() and v.key != "strokes" and v.key not in ("T2s", "T4s", "x2s", "x4s"):
+            table.add_row(v.key, f"[dim]{v.label}[/dim]")
+    console.print(Panel(table, title="[b]Keys[/b]", title_align="left", border_style="dim", expand=False))
+    console.print("  [dim]Units: type them (27C, 100kPa, 800kJ/kg); without a unit K, bar, kJ/kg, "
+                  "kJ/(kg·K), m³/kg.[/dim]")
+
+
 CUSTOM = {
     "delta": _ask_delta,
     "pvt": lambda calc: _ask_pair(calc, "V_"),
     "state": lambda calc: _ask_pair(calc, "x"),
 }
+CUSTOM.update({c.id: _ask_cycle for c in calcs.CALCS if c.group == calcs.CYCLES})
 
 
 def run_interactive(calc):
     console.rule(f"[b]{calc.title}[/b]", style=ACCENT)
-    if calc.help and calc.id != "delta":
+    if calc.help and calc.id != "delta" and calc.group != calcs.CYCLES:
         console.print(f"[dim]{calc.help}[/dim]")
     if calc.id in CUSTOM:
         kwargs = CUSTOM[calc.id](calc)
@@ -449,10 +548,22 @@ def list_calcs():
     for group, entries in calcs.groups().items():
         console.print(f"\n[b {ACCENT}]{group}[/]")
         for c in entries:
-            args = " ".join(_usage(f) for f in c.fields)
+            if c.group == calcs.CYCLES:
+                args = _cycle_usage(c)
+            else:
+                args = " ".join(_usage(f) for f in c.fields)
             console.print(f"  [b]{c.id:<15}[/b] {c.title}\n  {'':<15} [dim]{args}[/dim]")
             if c.id == "device":
                 console.print(f"  {'':<15} [dim]or: {' / '.join(DEVICES)} <sub> T1= P1= P2= ...[/dim]")
+
+
+def _cycle_usage(c):
+    if c.id == "step":
+        return f"<{'|'.join(cycles.STEPS)}> \\[sub] key=value ...   (see the keys in the menu)"
+    model = cycles.MODELS[c.id]
+    others = [v.key for v in model.primaries + model.outputs if not v.key[-1].isdigit() and v.key != "strokes"]
+    gas = "[k=] " if model.fluid == "gas" else ""
+    return (f"\\[sub] {gas}any of: {cycles.STATE_KEYS[model.fluid]} (1-4), " + " ".join(others))
 
 
 DEVICES = ("compressor", "pump", "turbine", "valve")
@@ -488,6 +599,8 @@ def run(
             loose.append(item)
     for f in calc.fields:
         key = f.name.rstrip("_").lower()
+        if loose and f.type == calcs.CHOICE and key not in given and loose[0].lower() in f.choices:
+            given[key] = loose.pop(0)
         if loose and f.type in (calcs.SUBSTANCE, calcs.SUBSTANCES) and key not in given:
             given[key] = loose.pop(0)
     if loose:

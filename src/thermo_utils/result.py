@@ -15,6 +15,8 @@ class Result:
     model: str | None = None
     pair: tuple | None = None
     equations: list = field(default_factory=list)
+    tables: list = field(default_factory=list)
+    diagram: dict | None = None
 
     def section(self, heading, rows=None):
         self.sections.append((heading, list(rows or [])))
