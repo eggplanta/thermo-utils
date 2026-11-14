@@ -10,6 +10,7 @@ import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from rich.markup import escape
 from rich.text import Text
 
 from thermo_utils import __version__, calcs, cycles, drawing, equations, plots, properties
@@ -309,9 +310,9 @@ def _prompt_field(f):
     elif f.type == calcs.CHOICE:
         hint = f" [dim]({' / '.join(f.choices)})[/dim]"
     if f.default is not None:
-        hint += f" [dim][default {f.default}][/dim]"
+        hint += f" [dim]\\[default {f.default}][/dim]"
     elif f.optional:
-        hint += " [dim][optional][/dim]"
+        hint += " [dim]\\[optional][/dim]"
     while True:
         text = ask_text(f"  {f.label}{hint}")
         try:
@@ -389,7 +390,7 @@ def _ask_cycle(calc):
     gas = model.fluid == "gas"
     default = "air" if gas else "water"
     while True:
-        text = ask_text(f"  {'Gas' if gas else 'Fluid'} [dim][default {default}][/dim]") or default
+        text = ask_text(f"  Substance [dim]\\[default {default}][/dim]") or default
         try:
             kwargs["sub"] = calcs.parse_value(f["sub"], text)
             break
@@ -397,52 +398,140 @@ def _ask_cycle(calc):
             console.print(f"  [red]{exc}[/red]")
     if gas and select("Gas properties", [("cp(T)", "variable Cp(T), as in the air tables"),
                                          ("cold", "constant Cp (cold air-standard)")]) == "cold":
-        text = ask_text("  k = cp/cv [dim][default 1.4][/dim]") or "1.4"
+        text = ask_text("  k = cp/cv [dim]\\[default 1.4][/dim]") or "1.4"
         kwargs["k"] = calcs.parse_value(f["k"], text)
-    _show_keys(model)
-    keys = {v.key.lower(): f[v.key] for v in cycles.all_vars(model)}
+    rows = [(key, desc, f[key]) if key else (None, desc, None) for key, desc in cycles.FORMS[model.id]]
+    return kwargs | form(rows)
+
+
+def _unit_hint(field):
+    if field.type != calcs.QUANTITY:
+        return ""
+    return unit_label(DEFAULT_INPUT_UNITS[field.qkind])
+
+
+def form(rows):
+    """Fill-in form: rows are (key, description, Field) or (None, header, None)."""
+    if not sys.stdin.isatty():
+        return _form_lines(rows)
+    fields = [i for i, r in enumerate(rows) if r[0]]
+    values = {r[0]: "" for r in rows if r[0]}
+    kw = max(len(r[0]) for r in rows if r[0])
+    dw = max(len(r[1]) for r in rows if r[0])
+    pos, msg, top = 0, "", 0
+    height = max(5, min(len(rows), shutil.get_terminal_size().lines - 9))
+    scroll = height < len(rows)
+    n_lines = height + 3 + (2 if scroll else 0)
+    console.print("  [dim]Type what you know and leave the rest blank. Units are optional (27C, 100kPa, "
+                  "800kJ/kg).[/dim]")
+    console.print("  [dim]↑ ↓ move   Enter next   Esc quit[/dim]")
+
+    def line(text):
+        sys.stdout.write("\r\x1b[2K")
+        sys.stdout.flush()
+        console.print(text, no_wrap=True, overflow="ellipsis")
+
+    def draw(first):
+        nonlocal top
+        if not first:
+            sys.stdout.write(f"\x1b[{n_lines}A")
+        cur = fields[pos] if pos < len(fields) else None
+        if cur is None:
+            top = len(rows) - height
+        elif cur < top:
+            top = cur - 1 if cur > 0 and rows[cur - 1][0] is None else cur
+        elif cur >= top + height:
+            top = cur - height + 1
+        top = max(0, min(top, len(rows) - height))
+        if scroll:
+            line(f"  [dim]{'▲ more' if top > 0 else ''}[/dim]")
+        for i in range(top, top + height):
+            key, desc, field = rows[i]
+            if key is None:
+                line(f"  [b {ACCENT}]{desc}[/]")
+                continue
+            here = i == cur
+            pointer = f"[b {ACCENT}]❯[/]" if here else " "
+            value = escape(values[key])
+            if here:
+                value += "[reverse] [/reverse]"
+            elif not value:
+                value = f"[dim]{_unit_hint(field)}[/dim]"
+            line(f"  {pointer} [b]{key:<{kw}}[/b]  [dim]{desc:<{dw}}[/dim]  {value}")
+        if scroll:
+            line(f"  [dim]{'▼ more' if top + height < len(rows) else ''}[/dim]")
+        line("")
+        line(f"  [b {ACCENT}]❯ Calculate[/]" if cur is None else "[dim]    Calculate[/dim]")
+        line(f"  [red]{escape(msg)}[/red]" if msg else "")
+
+    read = _read_key_windows if os.name == "nt" else _read_key_posix
+    sys.stdout.write("\x1b[?25l")
+    try:
+        with _cbreak():
+            draw(True)
+            while True:
+                key = read()
+                name = rows[fields[pos]][0] if pos < len(fields) else None
+                msg = ""
+                if key == "up":
+                    pos = (pos - 1) % (len(fields) + 1)
+                elif key == "down":
+                    pos = (pos + 1) % (len(fields) + 1)
+                elif key in ("\r", "\n"):
+                    if name is None:
+                        try:
+                            out = _parse_form(rows, values)
+                            break
+                        except ValueError as exc:
+                            bad, msg = exc.args if len(exc.args) == 2 else (None, str(exc))
+                            if bad:
+                                pos = next(j for j, i in enumerate(fields) if rows[i][0] == bad)
+                    else:
+                        pos += 1
+                elif key == "esc":
+                    raise Escape
+                elif key == "\x03":
+                    raise KeyboardInterrupt
+                elif key in ("\x7f", "\x08"):
+                    if name:
+                        values[name] = values[name][:-1]
+                elif name and len(key) == 1 and key.isprintable():
+                    values[name] += key
+                else:
+                    continue
+                draw(False)
+    finally:
+        sys.stdout.write("\x1b[?25h")
+        sys.stdout.flush()
+    sys.stdout.write(f"\x1b[{n_lines + 2}A\r\x1b[J")
+    sys.stdout.flush()
+    console.print("  " + "   ".join(f"[b]{k}[/b] = {escape(v)}" for k, v in values.items() if v.strip()))
+    return out
+
+
+def _parse_form(rows, values):
+    out = {}
+    for key, _, field in rows:
+        if key and values[key].strip():
+            try:
+                out[field.name] = calcs.parse_value(field, values[key])
+            except Exception as exc:
+                raise ValueError(key, f"{key}: {exc}")
+    if not out:
+        raise ValueError(None, "Type at least one value.")
+    return out
+
+
+def _form_lines(rows):
     while True:
-        text = ask_text(f"  [b]Known values[/b] [dim](e.g. {EXAMPLES[model.id]})[/dim]\n  =>")
+        values = {}
+        for key, desc, field in rows:
+            if key:
+                values[key] = ask_text(f"  {key} [dim]{desc} ({_unit_hint(field) or '-'})[/dim]")
         try:
-            given = {}
-            for token in text.replace(";", " ").split():
-                if "=" not in token:
-                    raise ValueError(f"'{token}' is not key=value")
-                k, v = token.split("=", 1)
-                if k.lower() not in keys:
-                    raise ValueError(f"Unknown key '{k}'")
-                given[keys[k.lower()].name] = calcs.parse_value(keys[k.lower()], v)
-            if not given:
-                raise ValueError("Type at least one value")
-            return kwargs | given
-        except Exception as exc:
-            console.print(f"  [red]{exc}[/red]")
-
-
-EXAMPLES = {
-    "otto": "T1=27C P1=100kPa r=8 q_in=800", "diesel": "T1=300 P1=95kPa r=18 rc=2",
-    "brayton": "T1=300 rp=10 T3=1400 eta_c=0.85", "rankine": "P1=10kPa P3=3MPa T3=350C",
-    "compression": "T1=300 P1=1bar r=8", "expansion": "T1=1800 P1=60bar r=8",
-    "heat-v": "T1=650 P1=18bar q=800", "heat-p": "T1=900 P1=60bar rc=2",
-    "gas-compressor": "T1=300 P1=1bar rp=8 eta=0.8", "gas-turbine": "T1=1300 P1=8bar rp=8 eta=0.85",
-    "pump": "P1=10kPa P2=3MPa eta=0.85", "steam-turbine": "P1=3MPa T1=350C P2=10kPa",
-    "boiler": "P1=3MPa T1=46C T2=350C", "condenser": "P1=10kPa x1=0.9",
-}
-
-
-def _show_keys(model):
-    n = model.states
-    st = " ".join(cycles.STATE_KEYS[model.fluid].split())
-    table = Table(show_header=False, box=None, padding=(0, 1))
-    table.add_column(style=f"bold {ACCENT}")
-    table.add_column()
-    table.add_row(f"{st}", f"[dim]state {'1-' + str(n) if n > 2 else '1, 2'} properties, e.g. T1, P2, x{n}[/dim]")
-    for v in model.primaries + model.outputs:
-        if not v.key[-1].isdigit() and v.key != "strokes" and v.key not in ("T2s", "T4s", "x2s", "x4s"):
-            table.add_row(v.key, f"[dim]{v.label}[/dim]")
-    console.print(Panel(table, title="[b]Keys[/b]", title_align="left", border_style="dim", expand=False))
-    console.print("  [dim]Units: type them (27C, 100kPa, 800kJ/kg); without a unit K, bar, kJ/kg, "
-                  "kJ/(kg·K), m³/kg.[/dim]")
+            return _parse_form(rows, values)
+        except ValueError as exc:
+            console.print(f"  [red]{exc.args[-1]}[/red]")
 
 
 CUSTOM = {
