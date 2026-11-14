@@ -455,7 +455,7 @@ CUSTOM.update({c.id: _ask_cycle for c in calcs.CALCS if c.group == calcs.CYCLES}
 
 def run_interactive(calc):
     console.rule(f"[b]{calc.title}[/b]", style=ACCENT)
-    if calc.help and calc.id != "delta" and calc.group != calcs.CYCLES:
+    if calc.help and calc.id != "delta":
         console.print(f"[dim]{calc.help}[/dim]")
     if calc.id in CUSTOM:
         kwargs = CUSTOM[calc.id](calc)

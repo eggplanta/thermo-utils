@@ -308,14 +308,15 @@ def _step_fn(kind, sub=None, k=None, cp=None, **given):
                       steps=True, **given)
 
 
-CYCLE_HELP = "Give any values that fix the cycle; the rest is solved."
+CYCLE_HELP = "Any data in, the rest out: give any values that fix the cycle and the rest is solved."
 CALCS += [
-    Calc(m.id, CYCLES, f"{m.title} (any data in, the rest out)", _cycle_fn(m.id), _cycle_fields([m]), CYCLE_HELP)
+    Calc(m.id, CYCLES, m.title, _cycle_fn(m.id), _cycle_fields([m]), CYCLE_HELP)
     for m in cycles.MODELS.values()
 ] + [
     Calc("step", CYCLES, "One cycle step: compression, heating, turbine, pump...", _step_fn,
          [Field("kind", "Step", CHOICE, choices=cycles.STEP_DESCRIPTIONS)]
-         + _cycle_fields(list(cycles.STEPS.values())), "Give any values that fix the step; the rest is solved."),
+         + _cycle_fields(list(cycles.STEPS.values())),
+         "Any data in, the rest out: give any values that fix the step and the rest is solved."),
 ]
 
 
