@@ -116,7 +116,26 @@ def pvt(sub, T_=None, P_=None, V_=None, model="auto"):
     res.section("Comparison between models", _compare(sub, T_, P_, V_))
     res.plot = lambda: _plot_isotherm(sub, st.T, model, st)
     res.plot_name = f"pvt_{sub.name}"
+    res.diagram = _isotherm_diagram(sub, model, st)
     return res
+
+
+def _isotherm_diagram(sub, model, st):
+    P_max = max(st.P * 3, (sub.Pc or 1e6) * 1.2)
+    curve = []
+    for p in np.geomspace(P_max / 300, P_max, 50):
+        try:
+            s = pure.state(sub, st.T, p, model)
+            if s.V > 0:
+                curve.append((s.V, p))
+        except Exception:
+            pass
+    curve.sort()
+    d = dome(sub, model, pv=True)
+    return dict(curves=[curve], points=[(st.V, st.P)], labels=[""], dome=d, xlog=True,
+                axes=(("V", V), ("P", P)),
+                legend=[("accent", f"isotherm {_f(st.T, T)} ({model})"), ("point", "state")]
+                + ([("dim", "saturation dome")] if d else []))
 
 
 def _compare(sub, T_, P_, V_):
@@ -183,6 +202,7 @@ def state_properties(sub, T_=None, P_=None, x=None, model="auto"):
     res.notes.append("Reference for H, S, U, G, A: ideal gas at 298.15 K and 1 bar (H = S = 0).")
     if pure.resolve_model(sub, model) == "coolprop" and st.HR is not None:
         res.section("Derivative properties (CoolProp)", _cp_derivatives(sub, st))
+    res.diagram = ts_diagram(sub, model, [st], [""], legend=[("point", st.phase)])
     return res
 
 
@@ -257,6 +277,9 @@ def property_change(sub, T1=None, P1=None, V1=None, x1=None, T2=None, P2=None, V
             row("-H_R(state 1)", -s1.HR, E), row("ΔH ideal gas", dH_ig, E), row("+H_R(state 2)", s2.HR, E),
             row("-S_R(state 1)", -s1.SR, S), row("ΔS ideal gas", dS_ig, S), row("+S_R(state 2)", s2.SR, S),
         ])
+    res.diagram = ts_diagram(sub, model, [s1, s2], ["1", "2"],
+                             [{"pts": [(s1.S, s1.T), (s2.S, s2.T)], "style": "dim-dashed"}],
+                             [("dim-dashed", "1 → 2 (Δ does not depend on the path)")])
     res.notes.append('The "←" marks the values found by the calculation.')
     res.notes += [n for n in dict.fromkeys(s1.notes + s2.notes)]
     res.data = deltas
@@ -313,6 +336,34 @@ def _solve_state(sub, k, v, prop, target, model):
     raise ValueError(f"No state with this {k} reaches the given Δ{prop}.")
 
 
+# Terminal diagrams
+
+def dome(sub, model, n=30, pv=False):
+    """Molar saturation dome (T-S, or P-V), liquid side up and vapor side down."""
+    m = pure.resolve_model(sub, model)
+    if m != "coolprop" and m not in pure._CUBICS:
+        m = "coolprop" if sub.coolprop else "pr-fit"
+    if not sub.Tc:
+        return None
+    t_lo = max(sub.Tm or 0, 0.45 * sub.Tc)
+    liq, vap = [], []
+    for t in sub.Tc * (1 - np.geomspace(1 - t_lo / sub.Tc, 0.002, n)):
+        try:
+            _, _, L, Vs = pure.saturation(sub, T=t, model=m)
+            liq.append((L.V, Vs.P) if pv else (L.S, t))
+            vap.append((Vs.V, Vs.P) if pv else (Vs.S, t))
+        except Exception:
+            pass
+    return liq + vap[::-1] or None
+
+
+def ts_diagram(sub, model, states, labels, curves=(), legend=(), equipment=None):
+    d = dome(sub, model)
+    return dict(curves=list(curves), points=[(st.S, st.T) for st in states], labels=labels,
+                axes=(("S", S), ("T", T)), dome=d, equipment=equipment,
+                legend=list(legend) + ([("dim", "saturation dome")] if d else []))
+
+
 def _molar_flow(sub, flow):
     kind, value = flow
     return value / (sub.MW / 1000) if kind == "mass" else value
@@ -350,7 +401,21 @@ def saturation(sub, T_=None, P_=None, model="auto"):
         res.notes.append(sub.note)
     res.plot = lambda: _plot_psat(sub, model, T_sat, P_sat)
     res.plot_name = f"psat_{sub.name}"
+    res.diagram = _psat_diagram(sub, model, T_sat, P_sat)
     return res
+
+
+def _psat_diagram(sub, model, T_sat, P_sat):
+    t_lo = min(max(sub.Tm or 0, 0.45 * sub.Tc), T_sat)
+    curve = []
+    for t in np.linspace(t_lo, sub.Tc * 0.999, 30):
+        try:
+            curve.append((t, pure.saturation(sub, T=t, model=model)[1]))
+        except Exception:
+            pass
+    return dict(curves=[curve], points=[(T_sat, P_sat), (sub.Tc, sub.Pc)], labels=["", "C"],
+                axes=(("T", T), ("Psat", P)), ylog=True,
+                legend=[("accent", f"vapor pressure ({model})"), ("point", "saturation"), ("point", "C critical point")])
 
 
 def riedel(sub):
@@ -372,7 +437,7 @@ def _plot_psat(sub, model, T_sat, P_sat):
         pts = []
         for t in Ts:
             try:
-                pts.append((from_si(t, display.temperature, T), from_si(pure.saturation(sub, T_=t, model=m)[1], display.pressure, P)))
+                pts.append((from_si(t, display.temperature, T), from_si(pure.saturation(sub, T=t, model=m)[1], display.pressure, P)))
             except Exception:
                 pass
         if pts:

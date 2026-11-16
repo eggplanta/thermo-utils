@@ -23,8 +23,12 @@ class Result:
         return self.sections[-1][1]
 
 
+def _unit(header):
+    return header.split("\n")[-1]
+
+
 def _cell(text, header):
-    return f"{text} {header}" if header in ENERGY_UNITS else text
+    return f"{text} {_unit(header)}" if _unit(header) in ENERGY_UNITS else text
 
 
 def harmonize(res):
@@ -53,10 +57,13 @@ def harmonize(res):
 
     res.sections = [(fix(h), [tuple(map(fix, r)) for r in rows]) for h, rows in res.sections]
     def fix_cell(t, h):
-        return apply_prefix(_cell(t, h), kilo).split(" ")[0] if h in ENERGY_UNITS else fix(t)
+        return apply_prefix(_cell(t, h), kilo).split(" ")[0] if _unit(h) in ENERGY_UNITS else fix(t)
 
     def fix_header(h):
-        return apply_prefix(f"1 {h}", kilo).split(" ", 1)[1] if h in ENERGY_UNITS else fix(h)
+        if _unit(h) not in ENERGY_UNITS:
+            return fix(h)
+        head = h.rsplit("\n", 1)[0] + "\n" if "\n" in h else ""
+        return head + apply_prefix(f"1 {_unit(h)}", kilo).split(" ", 1)[1]
 
     res.tables = [(fix(h), [fix_header(x) for x in headers],
                    [[(fix_cell(t, x), g) for (t, g), x in zip(cells, headers)] for cells in rows])

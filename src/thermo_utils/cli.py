@@ -128,7 +128,7 @@ def show_result(res, calc=None):
 
 def show_diagram(d):
     left = drawing.plot(d, accent=ACCENT)
-    right = drawing.equipment(d["equipment"], ACCENT) if d["equipment"] else []
+    right = drawing.equipment(d["equipment"], ACCENT) if d.get("equipment") else []
     lw = max(len(t) for t in left)
     rw = max((len(t) for t in right), default=0)
     console.print()

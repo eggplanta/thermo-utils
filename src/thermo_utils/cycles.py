@@ -622,6 +622,7 @@ def run(model_id, sub, k=None, cp=None, steps=False, **given):
              if v.key in out and not v.key[-1].isdigit() and _shown(v, out, given)]
     if steps:
         res.section(model.processes[0][1].capitalize(), [_row(v, out, given) for v in extra])
+        res.diagram = step_diagram(model, fluid, out)
     else:
         res.tables.append(("Processes", ["Process", "", f"q\n{_unit(E)}", f"w\n{_unit(E)}"],
                            _process_rows(model, out)))
@@ -834,6 +835,34 @@ def diagram(model, fluid, out):
                 equipment=model.id if model.id in ("brayton", "rankine") else None)
 
 
+STEP_EQUIPMENT = {
+    "compression": "piston", "expansion": "piston", "heat-v": "piston", "heat-p": "heater",
+    "gas-compressor": "compressor", "gas-turbine": "turbine", "pump": "pump", "steam-turbine": "turbine",
+    "boiler": "heater", "condenser": "cooler",
+}
+
+
+def step_diagram(model, fluid, out):
+    """T-s of one step; dashed 1→2s when the step is not isentropic."""
+    curve = _ts_path(model, fluid, out, 1, 2, model.processes[0][2])
+    pts, labels, curves = [(out["s1"], out["T1"]), (out["s2"], out["T2"])], ["1", "2"], [curve]
+    legend = [("accent", "actual path")]
+    if model.processes[0][2] == "s" and out.get("eta", 1.0) < 1.0:
+        if model.fluid == "gas":
+            t2s = out["T2s"]
+        else:
+            t2s = fluid.state_ph(out["P2"], fluid.h_ps(out["P2"], out["s1"]))["T"]
+        pts.append((out["s1"], t2s))
+        labels.append("2s")
+        curves.append({"pts": [pts[0], pts[2]], "style": "accent-dashed"})
+        legend.append(("accent-dashed", "isentropic 1→2s"))
+    dome = fluid.dome() if model.fluid == "fluid" else None
+    if dome:
+        legend.append(("dim", "saturation dome"))
+    return dict(curves=curves, points=pts, labels=labels, axes=(("s", S), ("T", T)), dome=dome,
+                legend=legend, equipment=STEP_EQUIPMENT[model.id])
+
+
 def _pv_path(out, a, b, kind):
     va, vb, pa, pb = out[f"v{a}"], out[f"v{b}"], out[f"P{a}"], out[f"P{b}"]
     if kind != "s":
@@ -844,6 +873,9 @@ def _pv_path(out, a, b, kind):
 
 def _ts_path(model, fluid, out, a, b, kind):
     sa, sb, ta, tb = out[f"s{a}"], out[f"s{b}"], out[f"T{a}"], out[f"T{b}"]
+    if kind == "v" and model.fluid == "gas":
+        v = out[f"v{a}"]
+        return [(fluid.s(t, fluid.R * t / v), t) for t in np.linspace(ta, tb, 60)]
     if kind != "P":
         return [(sa, ta), (sb, tb)]
     p = out[f"P{a}"]
@@ -854,3 +886,60 @@ def _ts_path(model, fluid, out, a, b, kind):
         st = fluid.state_ph(p, h)
         pts.append((st["s"], st["T"]))
     return pts
+
+
+# Menu forms: main inputs only
+
+def _states(desc, keys="TP"):
+    return [(f"{k}{i}", f"{d}") for i, d in desc.items() for k in keys]
+
+
+ENGINE_STATES = {1: "start of compression", 2: "end of compression", 3: "end of heat addition (peak)",
+                 4: "end of expansion"}
+ENGINE_REAL = [(None, "Real engine (optional)"), ("eta_c", "compression isentropic efficiency"),
+               ("eta_e", "expansion isentropic efficiency"), ("Vd", "displacement volume"),
+               ("rpm", "engine speed"), ("Wdot", "net power")]
+FLOW_REAL = [("mdot", "mass flow rate"), ("Wdot", "power")]
+FORMS = {
+    "otto": [(None, "States")] + _states(ENGINE_STATES) + [
+        (None, "Cycle"), ("r", "compression ratio v1/v2"), ("q_in", "heat added"), ("w_net", "net work"),
+        ("eta", "thermal efficiency"), ("mep", "mean effective pressure")] + ENGINE_REAL,
+    "diesel": [(None, "States")] + _states(ENGINE_STATES) + [
+        (None, "Cycle"), ("r", "compression ratio v1/v2"), ("rc", "cutoff ratio v3/v2"), ("q_in", "heat added"),
+        ("w_net", "net work"), ("eta", "thermal efficiency"), ("mep", "mean effective pressure")] + ENGINE_REAL,
+    "brayton": [
+        (None, "States"), ("T1", "compressor inlet"), ("P1", "compressor inlet (default 1 bar)"),
+        ("T2", "compressor outlet"), ("P2", "compressor outlet (= P3)"), ("T3", "turbine inlet"),
+        ("T4", "turbine outlet"),
+        (None, "Cycle"), ("rp", "pressure ratio P2/P1"), ("q_in", "heat added"), ("w_net", "net work"),
+        ("eta", "thermal efficiency"), ("bwr", "back work ratio w_c/w_t"),
+        (None, "Real plant (optional)"), ("eta_c", "compressor isentropic efficiency"),
+        ("eta_t", "turbine isentropic efficiency"), ("mdot", "mass flow rate"), ("Wdot", "net power")],
+    "rankine": [
+        (None, "States"), ("P1", "condenser pressure"), ("T1", "condenser temperature (saturation)"),
+        ("P3", "boiler pressure"), ("T3", "turbine inlet temperature"),
+        ("x3", "turbine inlet quality (1 = saturated vapor)"), ("x4", "turbine outlet quality"),
+        (None, "Cycle"), ("q_in", "heat added"), ("w_net", "net work"), ("eta", "thermal efficiency"),
+        (None, "Real plant (optional)"), ("eta_t", "turbine isentropic efficiency"),
+        ("eta_p", "pump isentropic efficiency"), ("mdot", "mass flow rate"), ("Wdot", "net power")],
+    "compression": _states({1: "start", 2: "end"}) + [
+        ("r", "compression ratio v1/v2"), ("w", "work in"), ("eta", "isentropic efficiency")],
+    "expansion": _states({1: "start", 2: "end"}) + [
+        ("r", "expansion ratio v2/v1"), ("w", "work out"), ("eta", "isentropic efficiency")],
+    "heat-v": _states({1: "start", 2: "end"}) + [("q", "heat in (negative if out)")],
+    "heat-p": [("T1", "start"), ("P1", "pressure"), ("T2", "end"), ("rc", "volume ratio v2/v1"),
+               ("q", "heat in (negative if out)")],
+    "gas-compressor": _states({1: "inlet", 2: "outlet"}) + [
+        ("rp", "pressure ratio P2/P1"), ("w", "work in"), ("eta", "isentropic efficiency")] + FLOW_REAL,
+    "gas-turbine": _states({1: "inlet", 2: "outlet"}) + [
+        ("rp", "pressure ratio P1/P2"), ("w", "work out"), ("eta", "isentropic efficiency")] + FLOW_REAL,
+    "pump": [("P1", "inlet"), ("T1", "inlet (blank = saturated liquid)"), ("P2", "outlet"), ("w", "work in"),
+             ("eta", "isentropic efficiency")] + FLOW_REAL,
+    "steam-turbine": [("P1", "inlet"), ("T1", "inlet"), ("x1", "inlet quality"), ("P2", "outlet"),
+                      ("x2", "outlet quality"), ("w", "work out"), ("eta", "isentropic efficiency")] + FLOW_REAL,
+    "boiler": [("P1", "pressure"), ("T1", "inlet"), ("T2", "outlet"), ("x2", "outlet quality"),
+               ("q", "heat in"), ("mdot", "mass flow rate"), ("Qdot", "heat rate")],
+    "condenser": [("P1", "pressure"), ("T1", "inlet"), ("x1", "inlet quality"),
+                  ("T2", "outlet (blank = saturated liquid)"), ("q", "heat out"), ("mdot", "mass flow rate"),
+                  ("Qdot", "heat rate")],
+}

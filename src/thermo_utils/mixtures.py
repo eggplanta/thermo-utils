@@ -9,7 +9,7 @@ from scipy.optimize import brentq, fsolve
 from thermo_utils import activity, vle
 from thermo_utils.result import Result, row
 from thermo_utils.units import (
-    MOLAR_ENERGY as E, MOLAR_ENTROPY as S, MOLAR_VOLUME as V, PRESSURE as P, TEMPERATURE as T,
+    DIMENSIONLESS as D, MOLAR_ENERGY as E, MOLAR_ENTROPY as S, MOLAR_VOLUME as V, PRESSURE as P, TEMPERATURE as T,
     R, display, fmt, from_si,
 )
 
@@ -163,6 +163,17 @@ def vle_calc(subs, kind, T_=None, P_=None, zs=None, method="gamma-phi", model="u
         fixed_T = kind in ("bubble-p", "dew-p", "flash")
         res.plot = lambda: _plot_binary(solver, subs, r.T if fixed_T else None, None if fixed_T else r.P)
         res.plot_name = f"vle_{'_'.join(_names(subs))}"
+        T_d, P_d = (r.T, None) if fixed_T else (None, r.P)
+        val = r.P if fixed_T else r.T
+        pts, labels = [], []
+        for comp, lab in ((r.xs, "x"), (r.ys, "y")):
+            if comp and comp[0] is not None:
+                pts.append((comp[0], val))
+                labels.append(lab)
+        if kind == "flash":
+            pts.append((zs[0], val))
+            labels.append("z")
+        res.diagram = _binary_diagram(subs, T_d, P_d, *_binary_curve(solver, T_d, P_d, 26), pts, labels)
     return res
 
 
@@ -185,7 +196,24 @@ def binary_diagram(subs, T_=None, P_=None, method="gamma-phi", model="unifac", p
         res.notes.append("No azeotrope found.")
     res.plot = lambda: _plot_binary(solver, subs, T_, P_)
     res.plot_name = f"{'pxy' if T_ else 'txy'}_{'_'.join(_names(subs))}"
+    res.diagram = _binary_diagram(subs, T_, P_, xs, ys, vals, [az] if az else [], ["az"] if az else [])
+    if res.diagram and az:
+        res.diagram["legend"].append(("point", "az azeotrope"))
     return res
+
+
+def _binary_diagram(subs, T_, P_, xs, ys, vals, points, labels):
+    """Pxy or Txy: bubble and dew curves, tie line between the marked x and y."""
+    if not xs:
+        return None
+    curves = [list(zip(xs, vals)), {"pts": list(zip(ys, vals)), "style": "alt"}]
+    legend = [("accent", "bubble (x)"), ("alt", "dew (y)")]
+    if len(points) >= 2:
+        curves.append({"pts": sorted(points[:2]), "style": "dim-dashed"})
+        legend.append(("dim-dashed", "tie line"))
+    title = f"{'Pxy at ' + fmt(T_, T) if T_ else 'Txy at ' + fmt(P_, P)}"
+    return dict(title=title, curves=curves, points=points, labels=labels, xlim=(0, 1),
+                axes=((f"x, y {subs[0].name}", D), ("P" if T_ else "T", P if T_ else T)), legend=legend)
 
 
 def _binary_curve(solver, T_, P_, n=51):
@@ -249,7 +277,23 @@ def lle(subs, T_, model="unifac", params=None):
     res.notes.append("Solved from xα·γα = xβ·γβ for both species.")
     res.plot = lambda: _plot_lle(ge, subs, T_)
     res.plot_name = f"lle_{'_'.join(_names(subs))}"
+    res.diagram = _lle_diagram(ge, subs, T_, sol)
     return res
+
+
+def _lle_diagram(ge, subs, T_, sol):
+    pts = [(s[0], s[1], t) for t in np.linspace(T_ - 60, T_ + 60, 21) if (s := _lle_solve(ge, t))]
+    if not pts:
+        return None
+    a, b, ts = zip(*pts)
+    points, labels, curves = [], [], [list(zip(a, ts)), list(zip(b, ts))]
+    legend = [("accent", "binodal curve")]
+    if sol:
+        points, labels = [(sol[0], T_), (sol[1], T_)], ["α", "β"]
+        curves.append({"pts": points, "style": "dim-dashed"})
+        legend.append(("dim-dashed", "tie line"))
+    return dict(title=f"Binodal curve, x {subs[0].name}", curves=curves, points=points, labels=labels,
+                xlim=(0, 1), axes=((f"x {subs[0].name}", D), ("T", T)), legend=legend)
 
 
 def _lle_solve(ge, T_):
@@ -335,6 +379,14 @@ def sle(subs, P_=101325.0, model="ideal", params=None):
 
     res.plot = plot
     res.plot_name = f"sle_{'_'.join(_names(subs))}"
+    a = np.linspace(xe, 0.9999, 25)
+    b = np.linspace(1e-4, xe, 25)
+    res.diagram = dict(
+        title="Solid-liquid diagram", xlim=(0, 1), points=[(xe, Te)], labels=["E"],
+        curves=[[(x, liquidus(0, x)) for x in a], {"pts": [(x, liquidus(1, 1 - x)) for x in b], "style": "alt"},
+                {"pts": [(0, Te), (1, Te)], "style": "dim-dashed"}],
+        axes=((f"x {subs[0].name}", D), ("T", T)),
+        legend=[("accent", f"solid {subs[0].name}"), ("alt", f"solid {subs[1].name}"), ("dim-dashed", "eutectic")])
     return res
 
 
@@ -355,6 +407,12 @@ def solubility(solute, T_, solvent=None, model="ideal"):
             rows.append(row(f"Solubility with {model}", "no solution"))
     if T_ >= solute.Tm:
         res.notes.append("T is above the melting point: the solute is liquid.")
+    ideal_x = lambda t: min(1.0, math.exp(-solute.Hfus / R * (1 / t - 1 / solute.Tm)))
+    ts = np.linspace(min(T_, 0.6 * solute.Tm), solute.Tm, 30)
+    res.diagram = dict(title=f"Solubility of {solute.name} (mole fraction)", curves=[[(t, ideal_x(t)) for t in ts]],
+                       points=[(T_, ideal_x(T_))], labels=[""], ylim=(0, 1), xlim=(ts[0], ts[-1]),
+                       axes=(("T", T), ("x", D)),
+                       legend=[("accent", "ideal solubility"), ("point", "this T")])
     return res
 
 

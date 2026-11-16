@@ -9,7 +9,7 @@ from scipy.optimize import brentq, minimize
 from thermo_utils import activity, reactions, substances, vle
 from thermo_utils.result import Result, row
 from thermo_utils.units import (
-    MOLAR_ENERGY as E, MOLAR_ENTROPY as S, PRESSURE as P, TEMPERATURE as T, R, display, fmt, from_si,
+    DIMENSIONLESS as D, MOLAR_ENERGY as E, MOLAR_ENTROPY as S, PRESSURE as P, TEMPERATURE as T, R, display, fmt, from_si,
 )
 
 P0 = 1e5
@@ -49,6 +49,16 @@ def equilibrium_constant(reaction, T_):
 
     res.plot = plot
     res.plot_name = "lnK"
+    ts = np.linspace(max(250, T_ - 400), T_ + 400, 40)
+    curve = [(t, -rx.dG(t) / (R * t)) for t in ts]
+    curves, legend = [curve], [("accent", "ln K(T)"), ("point", "this T")]
+    lnks = [c[1] for c in curve]
+    if min(lnks) < 0 < max(lnks):
+        curves.append({"pts": [(ts[0], 0), (ts[-1], 0)], "style": "dim-dashed"})
+        legend.append(("dim-dashed", "K = 1"))
+    res.diagram = dict(curves=curves, points=[(T_, math.log(K))], labels=[""], axes=(("T", T), ("ln K", D)),
+                       xlim=(ts[0], ts[-1]),
+                       legend=legend)
     return res
 
 
@@ -74,7 +84,7 @@ def _setup(rx, feed):
     return names, n0, nu, inert
 
 
-def single_reaction(reaction, T_, P_, feed, phase_model="ideal"):
+def single_reaction(reaction, T_, P_, feed, phase_model="ideal", curve=True):
     """Equilibrium extent of one reaction."""
     rx = reactions.parse(reaction, "l" if phase_model in ("ideal-liquid", "unifac") else "g")
     feed = _parse_feed(feed)
@@ -153,13 +163,24 @@ def single_reaction(reaction, T_, P_, feed, phase_model="ideal"):
 
     res.plot = plot
     res.plot_name = "conversion"
+    if curve:
+        pts = []
+        for t in np.linspace(max(250, T_ - 300), T_ + 300, 25):
+            try:
+                pts.append((t, single_reaction_conv(reaction, t, P_, feed, phase_model)))
+            except Exception:
+                pass
+        res.diagram = dict(title=f"Equilibrium conversion of {subs[key].name}", curves=[pts],
+                           points=[(T_, conv * 100)], labels=[""], ylim=(0, 100), xlim=(pts[0][0], pts[-1][0]),
+                           axes=(("T", T), ("X (%)", D)),
+                           legend=[("accent", f"equilibrium conversion at {fmt(P_, P)}"), ("point", "this T")])
     res.data = {"extent": eps, "conversion": conv}
     return res
 
 
 def single_reaction_conv(text, T_, P_, feed_dict, phase_model):
     feed = ", ".join(f"{s.cas}={v}" for s, v in feed_dict.items())
-    return single_reaction(text, T_, P_, feed, phase_model).data["conversion"] * 100
+    return single_reaction(text, T_, P_, feed, phase_model, curve=False).data["conversion"] * 100
 
 
 # Multi-reaction (Gibbs energy minimization)
