@@ -42,7 +42,7 @@ _FACTORS = {
         "cal/mol": 4.184, "kcal/mol": 4184.0, "btu/lbmol": BTU / LBMOL,
     },
     MOLAR_ENTROPY: {
-        "j/(mol·k)": 1.0, "kj/(mol·k)": 1e3, "cal/(mol·k)": 4.184, "kj/(kmol·k)": 1.0,
+        "j/(mol·k)": 1.0, "kj/(mol·k)": 1e3, "cal/(mol·k)": 4.184, "kcal/(mol·k)": 4184.0, "kj/(kmol·k)": 1.0,
         "btu/(lbmol·r)": BTU / LBMOL * 1.8,
     },
     MASS_FLOW: {
@@ -121,7 +121,7 @@ class DisplayUnits:
     temperature: str = "K"
     pressure: str = "bar"
     molar_volume: str = "cm3/mol"
-    molar_energy: str = "kJ/mol"
+    molar_energy: str = "J/mol"
     molar_entropy: str = "J/(mol·K)"
     mass_flow: str = "kg/s"
     molar_flow: str = "mol/s"
@@ -135,12 +135,15 @@ class DisplayUnits:
     volume: str = "L"
     mass: str = "kg"
     energy: str = "kJ"
+    follow_typed: bool = True
 
     def unit_for(self, kind):
         return getattr(self, kind, "")
 
     def adopt(self, kind, unit, force=False, name=None):
         """Show results in the unit the user typed (first one per kind)."""
+        if not (force or self.follow_typed):
+            return
         if name:
             TYPED[name] = label(unit)
         if hasattr(self, kind) and (force or kind not in _ADOPTED):
@@ -153,6 +156,18 @@ class DisplayUnits:
                 if other != kind and other not in _ADOPTED:
                     setattr(self, other, label(u))
 
+    def save(self):
+        """Store current units as the base restored by reset()."""
+        _BASE.update({k: getattr(self, k) for k in self.__dataclass_fields__ if k != "follow_typed"})
+
+    def reset(self):
+        """Back to base units before a new calculation."""
+        for k, v in _BASE.items():
+            setattr(self, k, v)
+        _ADOPTED.clear()
+        TYPED.clear()
+        _PREFIX[0] = None
+
 
 _BASES = [
     {MOLAR_VOLUME: "m3/kg", MOLAR_ENERGY: "kj/kg", MOLAR_ENTROPY: "kj/(kg·k)"},
@@ -164,11 +179,16 @@ _BASES = [
 _MASS_BASIS = {u: b for table in _MASS_FACTORS.values() for u in table for b in _BASES[:4] if u in b.values()}
 _MASS_BASIS.update({u: _BASES[0] for table in _MASS_FACTORS.values() for u in table if u not in _MASS_BASIS})
 _MASS_BASIS.update({u: _BASES[4] for u in _BASES[4].values()})
+for _e, _s in (("j", "j/(mol·k)"), ("cal", "cal/(mol·k)")):
+    for _u in (f"{_e}/mol", f"k{_e}/mol", _s, "k" + _s):
+        _MASS_BASIS[_u] = {MOLAR_ENERGY: f"{_e}/mol", MOLAR_ENTROPY: _s}
 
 
 _ADOPTED = set()
 TYPED = {}
+_BASE = {}
 display = DisplayUnits()
+display.save()
 
 
 _LABELS = {
@@ -179,7 +199,7 @@ _LABELS = {
     "ml/mol": "mL/mol",
     "j/mol": "J/mol", "kj/mol": "kJ/mol", "j/kmol": "J/kmol", "kj/kmol": "kJ/kmol", "cal/mol": "cal/mol",
     "kcal/mol": "kcal/mol",
-    "j/(mol·k)": "J/(mol·K)", "kj/(mol·k)": "kJ/(mol·K)", "cal/(mol·k)": "cal/(mol·K)", "kj/(kmol·k)": "kJ/(kmol·K)",
+    "j/(mol·k)": "J/(mol·K)", "kj/(mol·k)": "kJ/(mol·K)", "cal/(mol·k)": "cal/(mol·K)", "kcal/(mol·k)": "kcal/(mol·K)", "kj/(kmol·k)": "kJ/(kmol·K)",
     "m3/kg": "m³/kg", "cm3/g": "cm³/g", "l/kg": "L/kg", "ft3/lb": "ft³/lb",
     "j/kg": "J/kg", "kj/kg": "kJ/kg", "kcal/kg": "kcal/kg", "btu/lb": "Btu/lb",
     "j/(kg·k)": "J/(kg·K)", "kj/(kg·k)": "kJ/(kg·K)", "kcal/(kg·k)": "kcal/(kg·K)", "btu/(lb·r)": "Btu/(lb·R)",
@@ -274,4 +294,45 @@ def fmt(value, kind=DIMENSIONLESS, unit=None, digits=6):
         unit = DEFAULT_INPUT_UNITS[kind] if kind != MOLAR_ENERGY else "kJ/mol"
         shown = from_si(value, unit, kind)
     label = _LABELS.get(_norm(unit), unit)
-    return f"{shown:.{digits}g} {label}"
+    text = f"{shown:.{digits}g} {label}"
+    return text if _PREFIX[0] is None else apply_prefix(text, _PREFIX[0])
+
+
+# Same energy prefix (J or kJ, cal or kcal) for a whole result
+
+_KILO = {"J/mol": "kJ/mol", "J/(mol·K)": "kJ/(mol·K)", "cal/mol": "kcal/mol", "cal/(mol·K)": "kcal/(mol·K)",
+         "J/kg": "kJ/kg", "J/(kg·K)": "kJ/(kg·K)", "J": "kJ", "cal": "kcal"}
+_UNKILO = {v: k for k, v in _KILO.items()}
+ENERGY_UNITS = {*_KILO, *_UNKILO}
+_ENERGY_RE = re.compile(
+    r"(?<![\w.])([-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?) ("
+    + "|".join(re.escape(u) for u in sorted([*_KILO, *_UNKILO], key=len, reverse=True))
+    + r")(?![\w/(·²³])")
+_PREFIX = [None]
+
+
+def choose_prefix(texts):
+    """True (kJ) when most energy values are 1000 or more in J."""
+    big = small = 0
+    for text in texts:
+        for num, unit in _ENERGY_RE.findall(text):
+            if abs(float(num)) * (1000 if unit in _UNKILO else 1) >= 1000:
+                big += 1
+            else:
+                small += 1
+    return None if big + small == 0 else big > small
+
+
+def apply_prefix(text, kilo):
+    def sub(m):
+        value, unit = float(m.group(1)), m.group(2)
+        if kilo and unit in _KILO:
+            return f"{value / 1000:.6g} {_KILO[unit]}"
+        if not kilo and unit in _UNKILO:
+            return f"{value * 1000:.6g} {_UNKILO[unit]}"
+        return m.group(0)
+    return _ENERGY_RE.sub(sub, text)
+
+
+def set_prefix(kilo):
+    _PREFIX[0] = kilo

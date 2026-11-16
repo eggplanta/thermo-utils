@@ -3,11 +3,24 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from types import SimpleNamespace
 
-import CoolProp
-import CoolProp.CoolProp as CP
 from scipy.integrate import quad
 from chemicals.identifiers import search_chemical
 from thermo import ChemicalConstantsPackage
+
+
+class _Lazy:
+    """Imports a module on first attribute access."""
+
+    def __init__(self, name):
+        self._name = name
+
+    def __getattr__(self, attr):
+        import importlib
+        return getattr(importlib.import_module(self._name), attr)
+
+
+CoolProp = _Lazy("CoolProp")
+CP = _Lazy("CoolProp.CoolProp")
 
 FORMULA_ALIASES = {
     "c2h5oh": "ethanol", "ch3ch2oh": "ethanol", "ch3oh": "methanol", "ch3cooh": "acetic acid",

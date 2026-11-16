@@ -4,13 +4,11 @@ import math
 from dataclasses import dataclass, field
 from functools import lru_cache
 
-import CoolProp
-import CoolProp.CoolProp as CP
 import numpy as np
 from scipy.optimize import brentq, least_squares
 from thermo.eos import PR, RK, SRK, VDW, PRTranslatedConsistent, PRTranslatedTwu
 
-from thermo_utils.substances import require
+from thermo_utils.substances import CP, CoolProp, require
 from thermo_utils.units import R
 
 T0 = 298.15
@@ -205,12 +203,14 @@ def _cubic_state(sub, model, T, P):
 
 # CoolProp
 
-_PHASES = {
-    CoolProp.iphase_liquid: "liquid", CoolProp.iphase_gas: "vapor",
-    CoolProp.iphase_twophase: "two-phase", CoolProp.iphase_supercritical: "supercritical",
-    CoolProp.iphase_supercritical_gas: "supercritical gas",
-    CoolProp.iphase_supercritical_liquid: "supercritical liquid",
-}
+@lru_cache(maxsize=1)
+def _phases():
+    return {
+        CoolProp.iphase_liquid: "liquid", CoolProp.iphase_gas: "vapor",
+        CoolProp.iphase_twophase: "two-phase", CoolProp.iphase_supercritical: "supercritical",
+        CoolProp.iphase_supercritical_gas: "supercritical gas",
+        CoolProp.iphase_supercritical_liquid: "supercritical liquid",
+    }
 
 
 def _cp_offsets(sub):
@@ -236,7 +236,7 @@ T_MAX = 6000.0
 def _cp_state_from(sub, AS):
     T, P, rho = AS.T(), AS.p(), AS.rhomolar()
     Z = P / (rho * R * T)
-    phase = _PHASES.get(AS.phase(), "unknown")
+    phase = _phases().get(AS.phase(), "unknown")
     h0, s0 = _cp_offsets(sub)
     st = State(T, P, 1 / rho, phase, "coolprop", AS.hmolar() - h0, AS.smolar() - s0)
     t_max = AS.Tmax()

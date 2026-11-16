@@ -14,6 +14,7 @@ from rich.markup import escape
 from rich.text import Text
 
 from thermo_utils import __version__, calcs, cycles, drawing, equations, plots, properties
+from thermo_utils.result import harmonize
 from thermo_utils.units import DEFAULT_INPUT_UNITS, display, units_of
 from thermo_utils.units import _norm as _norm_unit, label as unit_label
 
@@ -100,6 +101,7 @@ def show_pair(pair):
 
 
 def show_result(res, calc=None):
+    harmonize(res)
     if calc is not None:
         show_equations(equations.for_calc(calc.id, res.model) + res.equations)
     if res.pair:
@@ -582,6 +584,7 @@ CUSTOM.update({c.id: _ask_cycle for c in calcs.CALCS if c.group == calcs.CYCLES}
 
 
 def run_interactive(calc):
+    display.reset()
     console.rule(f"[b]{calc.title}[/b]", style=ACCENT)
     if calc.help and calc.id != "delta":
         console.print(f"[dim]{calc.help}[/dim]")
@@ -598,7 +601,12 @@ def run_interactive(calc):
 
 def units_menu():
     console.rule("[b]Display units[/b]", style=ACCENT)
-    for kind in ("temperature", "pressure", "molar_volume", "molar_energy", "molar_entropy", "power"):
+    follow = select("Show results in the units you type?", [
+        ("yes", "Yes, typed units win over the ones below"),
+        ("no", "No, always use the units below"),
+    ], "yes" if display.follow_typed else "no")
+    display.follow_typed = follow == "yes"
+    for kind in ("temperature", "pressure", "molar_volume", "power"):
         options = [unit_label(o) for o in units_of(kind)]
         current = display.unit_for(kind)
         text = ask_text(f"  {kind.replace('_', ' ')} [dim]({', '.join(options)}) [{current}][/dim]") or current
@@ -606,6 +614,13 @@ def units_menu():
             display.adopt(kind, text, force=True)
         else:
             console.print(f"  [red]Unknown unit, keeping {current}[/red]")
+    family = select("energy", [
+        ("J", "J/mol, J/(mol·K)   (kJ when most values are large)"),
+        ("cal", "cal/mol, cal/(mol·K)   (kcal when most values are large)"),
+    ], "cal" if "cal" in display.molar_energy else "J")
+    display.adopt("molar_energy", f"{family}/mol", force=True)
+    display.adopt("molar_entropy", f"{family}/(mol·K)", force=True)
+    display.save()
 
 
 def menu():
@@ -624,7 +639,7 @@ def menu():
                 table.add_row(f"[b]{len(items)}[/b]", c.title)
         table.add_row("", "")
         table.add_row("[b]u[/b]", f"Display units [dim](T {display.temperature}, P {display.pressure}, "
-                                   f"E {display.molar_energy})[/dim]")
+                                   f"E {display.molar_energy}, {'typed units win' if display.follow_typed else 'fixed'})[/dim]")
         table.add_row("[b]Esc[/b]", "Exit")
         console.print(table)
         choice = ask_text("\n=>").lower()
