@@ -181,7 +181,7 @@ def _read_key_posix():
         c = os.read(fd, 1)
         while c and not (c.isalpha() or c == b"~"):
             c = os.read(fd, 1)
-        return {b"A": "up", b"B": "down"}.get(c, "")
+        return {b"A": "up", b"B": "down", b"C": "right", b"D": "left"}.get(c, "")
     if b and b[0] >= 0xC0:
         b += os.read(fd, 3 if b[0] >= 0xF0 else 2 if b[0] >= 0xE0 else 1)
     return b.decode(errors="ignore")
@@ -207,7 +207,7 @@ def _read_key_windows():
     import msvcrt
     ch = msvcrt.getwch()
     if ch in ("\x00", "\xe0"):
-        return {"H": "up", "P": "down"}.get(msvcrt.getwch(), "")
+        return {"H": "up", "P": "down", "M": "right", "K": "left"}.get(msvcrt.getwch(), "")
     return "esc" if ch == "\x1b" else ch
 
 
@@ -272,6 +272,45 @@ def select(label, options, default=None):
     desc = options[i][1]
     console.print(f"  {label}  {desc if len(desc) <= 30 else keys[i]}")
     return keys[i]
+
+
+def buttons(options):
+    """Horizontal button row, first option preselected."""
+    if not sys.stdin.isatty():
+        return options[-1]
+    i = 0
+    read = _read_key_windows if os.name == "nt" else _read_key_posix
+
+    def draw():
+        sys.stdout.write("\r\x1b[2K")
+        sys.stdout.flush()
+        row = "   ".join(f"[b reverse {ACCENT}] {o} [/]" if j == i else f"[dim] {o} [/dim]"
+                         for j, o in enumerate(options))
+        console.print(f"  {row}    [dim](← → to select, Enter to confirm)[/dim]", end="", no_wrap=True)
+
+    sys.stdout.write("\x1b[?25l")
+    try:
+        with _cbreak():
+            draw()
+            while True:
+                key = read()
+                if key in ("left", "up"):
+                    i = (i - 1) % len(options)
+                elif key in ("right", "down", "\t"):
+                    i = (i + 1) % len(options)
+                elif key in ("\r", "\n"):
+                    break
+                elif key == "esc":
+                    raise Escape
+                elif key == "\x03":
+                    raise KeyboardInterrupt
+                else:
+                    continue
+                draw()
+    finally:
+        sys.stdout.write("\r\x1b[2K\x1b[?25h")
+        sys.stdout.flush()
+    return options[i]
 
 
 def _read_line(read):
@@ -602,7 +641,11 @@ def menu():
             raise
         except Exception as exc:
             console.print(f"[red]Error: {exc}[/red]")
-        return
+        console.print()
+        if buttons(["Menu", "Exit"]) == "Exit":
+            return
+        console.rule(style="dim")
+        console.print()
 
 
 # Command line
