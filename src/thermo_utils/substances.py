@@ -26,7 +26,20 @@ FORMULA_ALIASES = {
     "c2h5oh": "ethanol", "ch3ch2oh": "ethanol", "ch3oh": "methanol", "ch3cooh": "acetic acid",
     "hcooh": "formic acid", "ch3coch3": "acetone", "c2h4": "ethylene", "c3h6": "propylene",
     "c6h5ch3": "toluene", "ch3cooc2h5": "ethyl acetate", "ch3och3": "dimethyl ether",
+    # usual compound for isomeric formulas
+    "c2h6o": "ethanol", "c2h4o2": "acetic acid", "c2h4o": "acetaldehyde", "c3h6o": "acetone",
+    "c4h8o2": "ethyl acetate", "c2h6o2": "ethylene glycol", "c3h8o2": "propylene glycol", "c3h4": "propyne",
+    "c3h4o": "acrolein", "c3h4o2": "acrylic acid", "c3h7no": "dimethylformamide", "c2h6os": "dimethyl sulfoxide",
+    "c4h6": "1,3-butadiene", "c4h6o2": "vinyl acetate", "c5h8o2": "methyl methacrylate", "c6h6": "benzene",
+    "c7h8": "toluene", "c6h12": "cyclohexane", "c7h14": "methylcyclohexane", "c6h10o": "cyclohexanone",
+    "c6h12o": "cyclohexanol", "c6h7n": "aniline", "c6h15n": "triethylamine", "c6h5no2": "nitrobenzene",
+    "c7h6o2": "benzoic acid", "c7h6o3": "salicylic acid", "c8h8": "styrene", "c9h12": "cumene",
+    "c12h10": "biphenyl", "c14h10": "anthracene", "c10h8": "naphthalene", "c12h22o11": "sucrose",
+    "c6h12o6": "glucose", "c3h6o3": "lactic acid", "c2h2f4": "1,1,1,2-tetrafluoroethane", "c2h7n": "ethylamine",
+    "h2": "hydrogen", "c4h10": "butane", "c5h12": "pentane", "c6h14": "hexane", "c7h16": "heptane",
+    "c8h18": "octane", "c10h22": "decane",
 }
+NOTICES = {}
 
 
 @lru_cache(maxsize=1)
@@ -233,17 +246,36 @@ def resolve_id(query):
     return FORMULA_ALIASES.get(query.lower(), query)
 
 
-@lru_cache(maxsize=512)
 def get(query):
     """Find a substance by name, CAS or formula."""
+    sub, notice = _lookup(query)
+    if notice:
+        NOTICES[query.strip()] = notice
+    return sub
+
+
+@lru_cache(maxsize=512)
+def _lookup(query):
     ident = resolve_id(query)
     if ident.lower() in AIR_NAMES:
-        return air()
+        return air(), None
     try:
         meta = search_chemical(ident)
     except ValueError:
         raise ValueError(f"Substance '{query}' not found. Try the English name or the CAS number.") from None
-    return _build(meta.CASs)
+    return _build(meta.CASs), _isomer_notice(ident, meta)
+
+
+def _isomer_notice(ident, meta):
+    if ident != meta.formula:
+        return None
+    from chemicals.identifiers import pubchem_db
+    others = sorted({m.common_name for m in pubchem_db.CAS_index.values()
+                     if m.formula == meta.formula and m.CASs != meta.CASs}, key=len)
+    if not others:
+        return None
+    return (f"{ident} matches {len(others) + 1} compounds; assumed {meta.common_name}. "
+            f"Type the name for another one (e.g. {', '.join(others[:3])}).")
 
 
 @lru_cache(maxsize=256)

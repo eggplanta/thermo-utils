@@ -13,7 +13,7 @@ from rich.table import Table
 from rich.markup import escape
 from rich.text import Text
 
-from thermo_utils import __version__, calcs, cycles, drawing, equations, plots, properties
+from thermo_utils import __version__, calcs, cycles, drawing, equations, plots, properties, substances
 from thermo_utils.result import harmonize
 from thermo_utils.units import DEFAULT_INPUT_UNITS, display, units_of
 from thermo_utils.units import _norm as _norm_unit, label as unit_label
@@ -101,6 +101,8 @@ def show_pair(pair):
 
 
 def show_result(res, calc=None):
+    res.notes += list(substances.NOTICES.values())
+    substances.NOTICES.clear()
     harmonize(res)
     if calc is not None:
         show_equations(equations.for_calc(calc.id, res.model) + res.equations)
@@ -585,6 +587,7 @@ CUSTOM.update({c.id: _ask_cycle for c in calcs.CALCS if c.group == calcs.CYCLES}
 
 def run_interactive(calc):
     display.reset()
+    substances.NOTICES.clear()
     console.rule(f"[b]{calc.title}[/b]", style=ACCENT)
     if calc.help and calc.id != "delta":
         console.print(f"[dim]{calc.help}[/dim]")
