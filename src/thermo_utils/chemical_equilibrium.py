@@ -7,7 +7,9 @@ from chemicals.elements import simple_formula_parser
 from scipy.optimize import brentq, minimize
 
 from thermo_utils import activity, reactions, substances, vle
+from thermo_utils import steplog as log
 from thermo_utils.result import Result, row
+from thermo_utils.steplog import q
 from thermo_utils.units import (
     DIMENSIONLESS as D, MOLAR_ENERGY as E, MOLAR_ENTROPY as S, PRESSURE as P, TEMPERATURE as T, R, display, fmt, from_si,
 )
@@ -21,6 +23,13 @@ def equilibrium_constant(reaction, T_):
     K = math.exp(-dG / (R * T_))
     K_vh = math.exp(-rx.dG0() / (R * 298.15) - rx.dH0() / R * (1 / T_ - 1 / 298.15))
     res = Result("Equilibrium constant")
+    rx.explain(T_)
+    if log.on():
+        log.step("Short-cut van 't Hoff (ΔH° constant)")
+        log.line("ln K = ln K298 − (ΔH°298/R)(1/T − 1/298.15) = {} − ({} / {})({} − {}) = {}",
+                 f"{-rx.dG0() / (R * 298.15):.6g}", q(rx.dH0(), E), R, f"{1 / T_:.6g}", f"{1 / 298.15:.6g}",
+                 f"{math.log(K_vh):.6g}")
+        log.line("K = {} (vs {} with ΔCp)", f"{K_vh:.6g}", f"{K:.6g}")
     res.section(rx.pretty(), [
         row("ΔG° at 298.15 K", rx.dG0(), E), row("ΔH° at 298.15 K", rx.dH0(), E),
         row(f"ΔG° at {fmt(T_, T)}", dG, E), row(f"ΔH° at {fmt(T_, T)}", dH, E),
@@ -116,14 +125,38 @@ def single_reaction(reaction, T_, P_, feed, phase_model="ideal", curve=True):
             phis = vle.virial_phis(subs + [s for s, _ in inert], T_, P_, ys)[0]
         return [math.log(max(y, 1e-300) * f * P_ / P0) for y, f in zip(ys, phis)][: len(subs)]
 
-    f = lambda e: sum(v * la for v, la in zip(nu, ln_activity(e))) - math.log(K)
+    tries = []
+
+    def f(e):
+        r = sum(v * la for v, la in zip(nu, ln_activity(e))) - math.log(K)
+        tries.append([len(tries) + 1, f"{e:.10g}", f"{r:.6g}"])
+        return r
+
+    rx.explain(T_)
+    if log.on():
+        log.step("Mole balance with the extent ε")
+        for s, a, v in zip(subs, n0, nu):
+            log.line("n {} = {} {} {}·ε", s.name, f"{a:g}", "+" if v > 0 else "−", f"{abs(v):g}")
+        for s, v in inert:
+            log.line("n {} = {} (inert)", s.name, f"{v:g}")
+        log.line("Σν = {}; ε between {} and {} (no negative moles)", f"{sum(nu):g}", f"{lo + 0.0:.6g}", f"{hi + 0.0:.6g}")
+        log.step("Equilibrium condition")
+        log.line({"ideal": "Π (yi P/P°)^νi = K  ->  Σ νi ln(yi P/P°) − ln K = 0",
+                  "virial": "Π (yi φ̂i P/P°)^νi = K  ->  Σ νi ln(yi φ̂i P/P°) − ln K = 0 (φ̂ from the virial equation)",
+                  "ideal-liquid": "Π xi^νi = K  ->  Σ νi ln xi − ln K = 0",
+                  "unifac": "Π (xi γi)^νi = K  ->  Σ νi ln(xi γi) − ln K = 0 (γ from UNIFAC)"}[phase_model])
+        log.line("ln K = {}; P/P° = {}", f"{math.log(K):.6g}", f"{P_ / P0:.6g}")
     f_lo, f_hi = f(eps_lo), f(eps_hi)
     if f_lo * f_hi > 0:
         eps = eps_hi if f_hi < 0 else eps_lo
         complete = True
+        log.line("f(ε) has the same sign at both limits: the reaction goes to the limit ε = {}", f"{eps:.6g}")
     else:
         eps = brentq(f, eps_lo, eps_hi, xtol=1e-14, maxiter=500)
         complete = False
+        log.line("Solve f(ε) = 0 with Brent's method:")
+        log.table(["it", "ε", "f(ε)"], tries)
+        log.line("ε = {} mol", f"{eps:.10g}")
     ys = comp(eps)
     res = Result("Single-reaction equilibrium")
     res.section(rx.pretty(), [
@@ -132,6 +165,17 @@ def single_reaction(reaction, T_, P_, feed, phase_model="ideal", curve=True):
     ])
     key = next(i for i, v in enumerate(nu) if v < 0 and n0[i] > 0)
     conv = -nu[key] * eps / n0[key]
+    if log.on():
+        log.step("Equilibrium composition")
+        tot = sum(n0) + sum(nu) * eps + sum(v for _, v in inert)
+        log.line("Total moles = Σn0 + Σν·ε = {}", f"{tot:.6g}")
+        for i, s in enumerate(subs):
+            log.line("{}: n = {} {} {}×{} = {}, {} = {}", s.name, f"{n0[i]:g}", "+" if nu[i] > 0 else "−",
+                     f"{abs(nu[i]):g}", f"{eps:.6g}", f"{n0[i] + nu[i] * eps:.6g}", "x" if liquid else "y", f"{ys[i]:.6g}")
+        la = ln_activity(eps)
+        log.line("Check: Σ νi ln ai = {} = ln K = {}", f"{sum(v * a for v, a in zip(nu, la)):.6g}", f"{math.log(K):.6g}")
+        log.line("Conversion of {} = −ν·ε/n0 = {} × {} / {} = {} %", subs[key].name, f"{-nu[key]:g}", f"{eps:.6g}",
+                 f"{n0[key]:g}", f"{conv * 100:.6g}")
     res.section("Equilibrium", [row(f"Conversion of {subs[key].name}", f"{conv * 100:.5g} %")] + [
         row(s.name, f"n = {n0[i] + nu[i] * eps:.6g} mol   {'x' if liquid else 'y'} = {ys[i]:.6f}")
         for i, s in enumerate(subs)
@@ -164,18 +208,24 @@ def single_reaction(reaction, T_, P_, feed, phase_model="ideal", curve=True):
     res.plot = plot
     res.plot_name = "conversion"
     if curve:
+        with log.muted():
+            res.diagram = _conversion_diagram(reaction, T_, P_, feed, phase_model, subs, key, conv)
+    res.data = {"extent": eps, "conversion": conv}
+    return res
+
+
+def _conversion_diagram(reaction, T_, P_, feed, phase_model, subs, key, conv):
+    if True:
         pts = []
         for t in np.linspace(max(250, T_ - 300), T_ + 300, 25):
             try:
                 pts.append((t, single_reaction_conv(reaction, t, P_, feed, phase_model)))
             except Exception:
                 pass
-        res.diagram = dict(title=f"Equilibrium conversion of {subs[key].name}", curves=[pts],
-                           points=[(T_, conv * 100)], labels=[""], ylim=(0, 100), xlim=(pts[0][0], pts[-1][0]),
-                           axes=(("T", T), ("X (%)", D)),
-                           legend=[("accent", f"equilibrium conversion at {fmt(P_, P)}"), ("point", "this T")])
-    res.data = {"extent": eps, "conversion": conv}
-    return res
+        return dict(title=f"Equilibrium conversion of {subs[key].name}", curves=[pts],
+                    points=[(T_, conv * 100)], labels=[""], ylim=(0, 100), xlim=(pts[0][0], pts[-1][0]),
+                    axes=(("T", T), ("X (%)", D)),
+                    legend=[("accent", f"equilibrium conversion at {fmt(P_, P)}"), ("point", "this T")])
 
 
 def single_reaction_conv(text, T_, P_, feed_dict, phase_model):
@@ -215,6 +265,20 @@ def gibbs_minimization(species, T_, P_, feed):
         n = np.maximum(n, 1e-30)
         return (g + np.log(n / n.sum()) + lnP) / scale
 
+    if log.on():
+        log.step("Element balances: Σ aik nk = bi")
+        log.table(["element"] + [s.formula for s in species] + ["b (fed)"],
+                  [[el] + [f"{v:g}" for v in A[i]] + [f"{b[i]:.6g}"] for i, el in enumerate(elements)])
+        log.step("Standard Gibbs energies at T = {} (ideal gas, 1 bar)", q(T_, T))
+        log.line("G°i = ΔHf°i + ∫Cp dT − T(S°i + ∫Cp/T dT), elements at 298.15 K as reference")
+        rows = []
+        for s in species:
+            H = s.Hf + s.H_ig(298.15, T_)
+            S_ = s.S0 + s.S_ig(298.15, T_)
+            rows.append([s.formula, q(s.Hf, E), q(H, E), q(S_, S), q(H - T_ * S_, E), f"{(H - T_ * S_) / (R * T_):.6g}"])
+        log.table(["species", "ΔHf°", "H(T)", "S(T)", "G°(T)", "G°/RT"], rows)
+        log.step("Minimize G/RT = Σ nk [G°k/RT + ln(yk P/P°)] subject to the element balances")
+        log.line("Method: SLSQP (sequential quadratic programming), nk > 0; ln(P/P°) = {}", f"{lnP:.6g}")
     start = np.linalg.lstsq(A, b, rcond=None)[0]
     start = np.maximum(start, 0) + 0.1 * scale / len(species)
     start = start * 0.5 + n0 * 0.5 + 1e-6
@@ -233,6 +297,17 @@ def gibbs_minimization(species, T_, P_, feed):
         row(s.name, f"n = {ni:.6g} mol   y = {yi:.6f}   (fed {n0i:g})") for s, ni, yi, n0i in zip(species, n, y, n0)
     ])
     lam = g + np.log(y) + lnP
+    if log.on():
+        log.line("Converged in {} iterations: {}", sol.nit, sol.message)
+        log.table(["species", "fed", "n", "y", "G°/RT + ln(yP/P°)"],
+                  [[s.formula, f"{a:g}", f"{ni:.6g}", f"{yi:.6g}", f"{li:.6g}"] for s, a, ni, yi, li in zip(species, n0, n, y, lam)])
+        pi = np.linalg.lstsq(A.T, lam, rcond=None)[0]
+        log.step("Check: Lagrange multipliers (element potentials λ/RT)")
+        log.line("At the minimum G°k/RT + ln(yk P/P°) = Σi λi aik for every species with nk > 0")
+        log.line("λ/RT: {}", ", ".join(f"{el} = {v:.6g}" for el, v in zip(elements, pi)))
+        log.table(["species", "Σ λi aik", "G°/RT + ln(yP/P°)", "difference"],
+                  [[s.formula, f"{a_:.6g}", f"{li:.6g}", f"{a_ - li:.2e}"] for s, a_, li in zip(species, A.T @ pi, lam)])
+        log.line("Element balance error: max |A n − b| = {} mol", f"{np.max(np.abs(A @ n - b)):.2e}")
     res.notes.append("Ideal-gas mixture; Lagrange multipliers satisfied when Σ λk aik = Gi/RT for every species.")
     res.notes.append(f"Max element-balance error: {np.max(np.abs(A @ n - b)):.2e} mol.")
     res.data = {"n": dict(zip([s.name for s in species], n)), "mu": lam}

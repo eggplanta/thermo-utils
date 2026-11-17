@@ -6,8 +6,10 @@ from dataclasses import dataclass
 
 from scipy.integrate import quad
 
+from thermo_utils import steplog as log
 from thermo_utils import substances
-from thermo_utils.units import R
+from thermo_utils.steplog import K, q
+from thermo_utils.units import MOLAR_ENERGY as E, MOLAR_ENTROPY as S, TEMPERATURE as T_, R
 
 T0 = 298.15
 P0 = 1e5
@@ -91,6 +93,36 @@ class Reaction:
 
     def K(self, T):
         return math.exp(-self.dG(T) / (R * T))
+
+    def explain(self, T):
+        """Log ΔH°, ΔG°, ΔS° and K at T."""
+        if not log.on():
+            return
+        log.step("Standard properties of {} at 298.15 K", self.pretty())
+        rows = []
+        for sp in self.species:
+            src = ""
+            if sp.phase == "l":
+                if sp.sub.cas in GF_LIQUID:
+                    src = "ΔGf°(l) from table"
+                else:
+                    src = "ΔGf°(l) = ΔGf°(g) + RT ln(Psat/P°)"
+            rows.append([sp.label, f"{sp.nu:+g}", q(sp.Hf(), E), q(sp.Gf(), E), q(sp.Cp(T0), S), src])
+        log.table(["species", "ν", "ΔHf°", "ΔGf°", "Cp(298 K)", "note"], rows)
+        dH0, dG0 = self.dH0(), self.dG0()
+        log.line("ΔH°298 = Σ νi ΔHf°i = {}", q(dH0, E))
+        log.line("ΔG°298 = Σ νi ΔGf°i = {}", q(dG0, E))
+        log.line("ΔS°298 = (ΔH° − ΔG°)/298.15 K = {}", q((dH0 - dG0) / T0, S))
+        log.line("K298 = exp(−ΔG°/RT) = exp({}) = {}", f"{-dG0 / (R * T0):.6g}", f"{math.exp(-dG0 / (R * T0)):.6g}")
+        log.step("Correction to T = {} with ΔCp(T)", q(T, T_))
+        log.line("ΔCp = Σ νi Cp_i(T): at 298.15 K {}, at T {}", q(self.dCp(T0), S), q(self.dCp(T), S))
+        iH = quad(self.dCp, T0, T, limit=200)[0]
+        iS = quad(lambda t: self.dCp(t) / t, T0, T, limit=200)[0]
+        log.line("ΔH°(T) = ΔH°298 + ∫ΔCp dT = {} + {} = {}", q(dH0, E), q(iH, E), q(self.dH(T), E))
+        log.line("ΔS°(T) = ΔS°298 + ∫ΔCp/T dT = {} + {} = {}", q((dH0 - dG0) / T0, S), q(iS, S), q(self.dS(T), S))
+        log.line("ΔG°(T) = ΔH°(T) − TΔS°(T) = {} − {} = {}", q(self.dH(T), E), q(T * self.dS(T), E), q(self.dG(T), E))
+        log.line("ln K = −ΔG°/RT = −{} / ({} · {}) = {}", q(self.dG(T), E), R, K(T), f"{-self.dG(T) / (R * T):.6g}")
+        log.line("K = {}", f"{self.K(T):.6g}")
 
     def pretty(self):
         def side(items):

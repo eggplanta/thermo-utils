@@ -13,7 +13,7 @@ from rich.table import Table
 from rich.markup import escape
 from rich.text import Text
 
-from thermo_utils import __version__, calcs, cycles, drawing, equations, plots, properties, substances
+from thermo_utils import __version__, calcs, cycles, drawing, equations, plots, properties, steplog, substances
 from thermo_utils.result import harmonize
 from thermo_utils.units import DEFAULT_INPUT_UNITS, display, units_of
 from thermo_utils.units import _norm as _norm_unit, label as unit_label
@@ -182,10 +182,13 @@ def _read_key_posix():
             return "esc"
         if os.read(fd, 1) not in (b"[", b"O"):
             return ""
-        c = os.read(fd, 1)
+        seq = c = os.read(fd, 1)
         while c and not (c.isalpha() or c == b"~"):
             c = os.read(fd, 1)
-        return {b"A": "up", b"B": "down", b"C": "right", b"D": "left"}.get(c, "")
+            seq += c
+        return {b"A": "up", b"B": "down", b"C": "right", b"D": "left", b"H": "home", b"F": "end",
+                b"5~": "pgup", b"6~": "pgdn", b"1~": "home", b"4~": "end", b"7~": "home", b"8~": "end"}.get(
+            seq if seq.endswith(b"~") else c, "")
     if b and b[0] >= 0xC0:
         b += os.read(fd, 3 if b[0] >= 0xF0 else 2 if b[0] >= 0xE0 else 1)
     return b.decode(errors="ignore")
@@ -211,7 +214,8 @@ def _read_key_windows():
     import msvcrt
     ch = msvcrt.getwch()
     if ch in ("\x00", "\xe0"):
-        return {"H": "up", "P": "down", "M": "right", "K": "left"}.get(msvcrt.getwch(), "")
+        return {"H": "up", "P": "down", "M": "right", "K": "left", "I": "pgup", "Q": "pgdn",
+                "G": "home", "O": "end"}.get(msvcrt.getwch(), "")
     return "esc" if ch == "\x1b" else ch
 
 
@@ -278,11 +282,11 @@ def select(label, options, default=None):
     return keys[i]
 
 
-def buttons(options):
-    """Horizontal button row, first option preselected."""
+def buttons(options, default=0):
+    """Horizontal button row; None when there is no terminal."""
     if not sys.stdin.isatty():
-        return options[-1]
-    i = 0
+        return None
+    i = default
     read = _read_key_windows if os.name == "nt" else _read_key_posix
 
     def draw():
@@ -290,7 +294,7 @@ def buttons(options):
         sys.stdout.flush()
         row = "   ".join(f"[b reverse {ACCENT}] {o} [/]" if j == i else f"[dim] {o} [/dim]"
                          for j, o in enumerate(options))
-        console.print(f"  {row}    [dim](← → to select, Enter to confirm)[/dim]", end="", no_wrap=True)
+        console.print(f"  {row}    [dim](← → to select, Enter to confirm, Esc to exit)[/dim]", end="", no_wrap=True)
 
     sys.stdout.write("\x1b[?25l")
     try:
@@ -597,9 +601,102 @@ def run_interactive(calc):
         kwargs = {f.name: _prompt_field(f) for f in calc.fields}
     console.print()
     with console.status("Calculating..."):
-        res = calc.fn(**kwargs)
+        res = compute(calc, kwargs)
     show_result(res, calc)
     handle_plot(res)
+    return res
+
+
+def compute(calc, kwargs):
+    """Run a calculation and keep its step log."""
+    steplog.start()
+    try:
+        _log_inputs(calc, kwargs)
+        res = calc.fn(**kwargs)
+    finally:
+        entries = steplog.take()
+    res.log = entries
+    return res
+
+
+def _log_inputs(calc, kwargs):
+    steplog.step("Inputs: {}", calc.title)
+    for f in calc.fields:
+        v = kwargs.get(f.name)
+        if v is None or v == "":
+            continue
+        name = f.name.rstrip("_")
+        if f.type == calcs.SUBSTANCE:
+            steplog.line(f"{name} = {{}} ({{}}, CAS {{}}, M = {{}} g/mol)", v.name, v.formula, v.cas, f"{v.MW:.5g}")
+        elif f.type == calcs.SUBSTANCES:
+            steplog.line(f"{name} = {{}}", ", ".join(s.name for s in v))
+        elif f.type == calcs.QUANTITY:
+            steplog.line(f"{name} = {{}}", steplog.q(v, f.qkind))
+        elif f.type == calcs.FLOW:
+            steplog.line(f"{name} = {{}} {{}}", f"{v[1]:.6g}", "kg/s" if v[0] == "mass" else "mol/s")
+        elif f.type == calcs.CHOICE and f.choices and v in f.choices:
+            steplog.line(f"{name} = {{}} ({{}})", v, f.choices[v])
+        elif isinstance(v, (list, tuple)):
+            steplog.line(f"{name} = {{}}", ", ".join(map(str, v)))
+        else:
+            steplog.line(f"{name} = {{}}", v)
+
+
+def after_result(res):
+    """Menu / Show details buttons; False to exit."""
+    options = ["Menu", "Show details"] if res is not None and res.log else ["Menu"]
+    default = 0
+    while (pick := buttons(options, default)) == "Show details":
+        show_log(res)
+        default = 1
+    return pick is not None
+
+
+# Details pager
+
+def show_log(res):
+    lines = steplog.render(res.log)
+    title = f"{res.title}: calculation details"
+    if not sys.stdin.isatty():
+        console.print(title, markup=False)
+        for ln in lines:
+            console.print(ln, markup=False)
+        return
+    import textwrap
+    read = _read_key_windows if os.name == "nt" else _read_key_posix
+    help_ = " ↑/↓ scroll   PgUp/PgDn page   Home/End   q close (back to the result) "
+    top, width, wrapped = 0, None, []
+    with console.screen(hide_cursor=True), _cbreak():
+        while True:
+            cols, rows = shutil.get_terminal_size()
+            if cols != width:
+                width, wrapped = cols, []
+                for ln in lines:
+                    pad = len(ln) - len(ln.lstrip()) + 2
+                    wrapped += textwrap.wrap(ln, max(20, cols - 1), subsequent_indent=" " * pad) or [""]
+            body = max(1, rows - 2)
+            top = max(0, min(top, len(wrapped) - body))
+            shown = wrapped[top:top + body]
+            pos = f" lines {top + 1}-{top + len(shown)} of {len(wrapped)} "
+            head = f" {title}"[: max(0, cols - len(pos))]
+            out = ["\x1b[H\x1b[7m" + head + " " * max(0, cols - len(head) - len(pos)) + pos + "\x1b[0m"]
+            for ln in shown:
+                style = "\x1b[1m" if ln.startswith("[") else ""
+                out.append("\x1b[2K" + style + ln + ("\x1b[0m" if style else ""))
+            out += ["\x1b[2K"] * (body - len(shown))
+            out.append("\x1b[2K\x1b[7m" + help_[:cols].ljust(cols - 1) + "\x1b[0m")
+            sys.stdout.write("\r\n".join(out))
+            sys.stdout.flush()
+            key = read()
+            if key in ("q", "Q", "esc"):
+                return
+            if key == "\x03":
+                raise KeyboardInterrupt
+            step = {"up": -1, "k": -1, "down": 1, "j": 1, "\r": 1, "\n": 1, "pgup": -body, "b": -body,
+                    "pgdn": body, " ": body, "home": -len(wrapped), "g": -len(wrapped),
+                    "end": len(wrapped), "G": len(wrapped)}.get(key)
+            if step:
+                top += step
 
 
 def units_menu():
@@ -653,14 +750,15 @@ def menu():
         if not choice.isdigit() or not 1 <= int(choice) <= len(items):
             console.print("[red]Invalid option.[/red]\n")
             continue
+        res = None
         try:
-            run_interactive(items[int(choice) - 1])
+            res = run_interactive(items[int(choice) - 1])
         except (Escape, KeyboardInterrupt):
             raise
         except Exception as exc:
             console.print(f"[red]Error: {exc}[/red]")
         console.print()
-        if buttons(["Menu", "Exit"]) == "Exit":
+        if not after_result(res):
             return
         console.rule(style="dim")
         console.print()
@@ -729,6 +827,7 @@ def run(
     p_unit: str = typer.Option(None, "--P-unit", help="Display unit for pressure"),
     e_unit: str = typer.Option(None, "--E-unit", help="Display unit for molar energy"),
     v_unit: str = typer.Option(None, "--V-unit", help="Display unit for molar volume"),
+    details: bool = typer.Option(False, "--details", help="Print the step-by-step calculation log"),
 ):
     """Run one calculation without the menu."""
     _apply_units(t_unit, p_unit, e_unit, v_unit)
@@ -763,11 +862,16 @@ def run(
             kwargs[f.name] = calcs.parse_value(f, given.pop(key, ""))
         if given:
             raise ValueError(f"Unknown inputs: {', '.join(given)}")
-        res = calc.fn(**kwargs)
+        res = compute(calc, kwargs)
     except Exception as exc:
         console.print(f"[red]Error: {exc}[/red]")
         raise typer.Exit(1)
     show_result(res, calc)
+    if details:
+        console.print()
+        console.rule("[b]Calculation details[/b]", style="dim")
+        for ln in steplog.render(res.log):
+            console.print(ln, markup=False, highlight=False, soft_wrap=True)
     handle_plot(res, ask=False, save=plot or open_plot, open_it=open_plot)
 
 

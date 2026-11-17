@@ -8,8 +8,11 @@ import numpy as np
 from scipy.optimize import brentq, least_squares
 from thermo.eos import PR, RK, SRK, VDW, PRTranslatedConsistent, PRTranslatedTwu
 
+from thermo_utils import steplog as log
+from thermo_utils.steplog import K, q
 from thermo_utils.substances import CP, CoolProp, require
-from thermo_utils.units import R
+from thermo_utils.units import MOLAR_ENERGY as E, MOLAR_ENTROPY as S_, MOLAR_VOLUME as V_, PRESSURE as P_
+from thermo_utils.units import TEMPERATURE as T_, R
 
 T0 = 298.15
 P0 = 1e5
@@ -396,6 +399,26 @@ def state_PS(sub, P, S, model="auto"):
 def _solve_T(sub, P, target, prop, model):
     """State at P with given H or S, including the two-phase region."""
     model = resolve_model(sub, model)
+    kind = E if prop == "H" else S_
+    log.step("State at P = {} with {} = {}", q(P, P_), prop, q(target, kind))
+    with log.muted():
+        st = _solve_T_quiet(sub, P, target, prop, model)
+    if st.phase.startswith("two-phase"):
+        T_sat, P_sat, L, V = saturation(sub, P=P, model=model)
+        lo, hi = getattr(L, prop), getattr(V, prop)
+        log.line("Saturation at P: Tsat = {}, {}_liq = {}, {}_vap = {}", q(T_sat, T_), prop, q(lo, kind), prop, q(hi, kind))
+        log.line("{}_liq <= {} <= {}_vap, so the state is two-phase", prop, prop, prop)
+        x = (target - lo) / (hi - lo)
+        log.line("x = ({} − {}_liq)/({}_vap − {}_liq) = ({} − {})/({} − {}) = {}",
+                 prop, prop, prop, prop, q(target, kind), q(lo, kind), q(hi, kind), q(lo, kind), q(x))
+        explain_two_phase(sub, st, L, V, x)
+    else:
+        log.line("Single phase: solve {}(T, P) = {} for T (Brent's method) -> T = {}", prop, q(target, kind), q(st.T, T_))
+        explain_state(sub, st, f"State found at T = {{}}, P = {{}}", q(st.T, T_), q(st.P, P_))
+    return st
+
+
+def _solve_T_quiet(sub, P, target, prop, model):
     has_liquid = model == "coolprop" or model in _CUBICS
     T_sat = T_dew = None
     if has_liquid and P < sub.Pc:
@@ -428,3 +451,167 @@ def _t_low(sub, model):
     if model == "coolprop":
         return CP.PropsSI("Tmin", sub.coolprop) * 1.001
     return max(sub.Tm or 0, 0.3 * sub.Tc) if sub.Tc else 50.0
+
+
+# Step log
+
+_OMEGA = {"pr": ("0.45724", "0.07780"), "srk": ("0.42748", "0.08664"), "rk": ("0.42748", "0.08664"),
+          "vdw": ("27/64", "1/8"), "pr-fit": ("0.45724", "0.07780")}
+_KAPPA = {"pr": "κ = 0.37464 + 1.54226ω − 0.26992ω²", "srk": "m = 0.480 + 1.574ω − 0.176ω²"}
+_ALPHA = {"pr": "α = [1 + κ(1 − √Tr)]²", "srk": "α = [1 + m(1 − √Tr)]²", "rk": "α = 1/√Tr",
+          "vdw": "α = 1", "pr-fit": "α = Tr^(N(M−1)) exp[L(1 − Tr^(NM))] (Twu, fitted to Psat)"}
+_POLY = {"pr": "Z³ − (1 − B)Z² + (A − 3B² − 2B)Z − (AB − B² − B³) = 0",
+         "srk": "Z³ − Z² + (A − B − B²)Z − AB = 0", "rk": "Z³ − Z² + (A − B − B²)Z − AB = 0",
+         "vdw": "Z³ − (1 + B)Z² + AZ − AB = 0", "pr-fit": "PR cubic in Z, then V = V_PR − c (volume translation)"}
+
+
+def explain_ideal_parts(sub, T, P):
+    if not log.on():
+        return
+    H, S, Cp = _ideal_parts(sub, T, P)
+    s_int = sub.S_ig(T0, T)
+    log.line("Ideal-gas part (reference: ideal gas at 298.15 K and 1 bar, H = S = 0):")
+    log.line("  Cp_ig(T) = {}", q(Cp, S_))
+    log.line("  H_ig = ∫Cp_ig dT (298.15 K → T) = {}", q(H, E))
+    log.line("  S_ig = ∫Cp_ig/T dT − R ln(P/P°) = {} − {} = {}", q(s_int, S_), q(R * math.log(P / P0), S_), q(S, S_))
+
+
+def explain_state(sub, st, title=None, *args):
+    """Log how a single-phase state was calculated."""
+    if not log.on():
+        return
+    if title:
+        log.step(title, *args)
+    else:
+        log.step("State of {} at T = {}, P = {}", sub.name, q(st.T, T_), q(st.P, P_))
+    log.line("Model: {} - {}", st.model, MODELS.get(st.model, st.model))
+    if st.phase.startswith("two-phase"):
+        with log.muted():
+            T_sat, P_sat, L, V = saturation(sub, T=st.T, model=st.model)
+        log.line("T and P (or V) fall inside the saturation dome: Tsat = {}, Psat = {}", q(T_sat, T_), q(P_sat, P_))
+        log.line("Saturated liquid: V = {}, H = {}, S = {}", q(L.V, V_), q(L.H, E), q(L.S, S_))
+        log.line("Saturated vapor:  V = {}, H = {}, S = {}", q(V.V, V_), q(V.H, E), q(V.S, S_))
+        explain_two_phase(sub, st, L, V, (st.V - L.V) / (V.V - L.V))
+        return
+    if st.model == "ideal":
+        log.line("V = RT/P = {} · {} / {} = {}", R, K(st.T), q(st.P, P_), q(st.V, V_))
+        explain_ideal_parts(sub, st.T, st.P)
+        log.line("Ideal gas: H_R = S_R = 0, φ = 1")
+    elif st.model == "virial":
+        _explain_virial(sub, st)
+    elif st.model == "coolprop":
+        _explain_coolprop(sub, st)
+    else:
+        _explain_cubic(sub, st)
+    if st.model != "coolprop" and st.HR is not None:
+        H_ig, S_ig = st.H - st.HR, st.S - st.SR
+        log.line("H = H_ig + H_R = {} + {} = {}", q(H_ig, E), q(st.HR, E), q(st.H, E))
+        log.line("S = S_ig + S_R = {} + {} = {}", q(S_ig, S_), q(st.SR, S_), q(st.S, S_))
+    explain_derived(st)
+
+
+def explain_derived(st):
+    log.line("Z = PV/RT = {}", q(st.Z))
+    log.line("U = H − PV = {} − {} = {}", q(st.H, E), q(st.P * st.V, E), q(st.U, E))
+    log.line("G = H − TS = {} − {} = {}", q(st.H, E), q(st.T * st.S, E), q(st.G, E))
+    log.line("A = U − TS = {} − {} = {}", q(st.U, E), q(st.T * st.S, E), q(st.A, E))
+    if st.Cp is not None:
+        log.line("Cp = {}   Cv = {}", q(st.Cp, S_), q(st.Cv, S_))
+    if st.phi is not None:
+        log.line("φ = {}   f = φP = {}", q(st.phi), q(st.phi * st.P, P_))
+
+
+def _explain_virial(sub, st):
+    T, P = st.T, st.P
+    Tr, B0, B1, dB0, dB1, *_ = _pitzer(sub, T)
+    Pr, w = P / sub.Pc, sub.omega
+    B = virial_B(sub, T)
+    log.line("Tc = {}, Pc = {}, ω = {}", q(sub.Tc, T_), q(sub.Pc, P_), q(w))
+    log.line("Tr = T/Tc = {}   Pr = P/Pc = {}", q(Tr), q(Pr))
+    log.line("B0 = 0.083 − 0.422/Tr^1.6 = {}", q(B0))
+    log.line("B1 = 0.139 − 0.172/Tr^4.2 = {}", q(B1))
+    log.line("B = (RTc/Pc)(B0 + ωB1) = {}", q(B, V_))
+    log.line("Z = 1 + BP/RT = {}", q(1 + B * P / (R * T)))
+    log.line("V = RT/P + B = {} + {} = {}", q(R * T / P, V_), q(B, V_), q(st.V, V_))
+    explain_ideal_parts(sub, T, P)
+    log.line("dB0/dTr = 0.675/Tr^2.6 = {}   dB1/dTr = 0.722/Tr^5.2 = {}", q(dB0), q(dB1))
+    log.line("H_R = RTc·Pr[B0 − Tr dB0/dTr + ω(B1 − Tr dB1/dTr)] = {}", q(st.HR, E))
+    log.line("S_R = −R·Pr(dB0/dTr + ω dB1/dTr) = {}", q(st.SR, S_))
+    log.line("ln φ = (Pr/Tr)(B0 + ωB1) = {}  ->  φ = {}", q(math.log(st.phi)), q(st.phi))
+
+
+def _explain_cubic(sub, st):
+    T, P, m = st.T, st.P, st.model
+    eos = _cubic(sub, m, T=T, P=P)
+    Tr = T / sub.Tc
+    oa, ob = _OMEGA.get(m, ("", ""))
+    alpha = eos.a_alpha / eos.a
+    A, B = eos.a_alpha * P / (R * T) ** 2, eos.b * P / (R * T)
+    log.line("Tc = {}, Pc = {}, ω = {}, Tr = T/Tc = {}", q(sub.Tc, T_), q(sub.Pc, P_), q(sub.omega), q(Tr))
+    log.line("a = {}·R²Tc²/Pc = {} Pa·m⁶/mol²", oa, q(eos.a))
+    if m == "pr-fit":
+        log.line("b = 0.07780·RTc/Pc − c = {}", q(eos.b, V_))
+    else:
+        log.line("b = {}·RTc/Pc = {}", ob, q(eos.b, V_))
+    if m in _KAPPA:
+        log.line("{} = {}", _KAPPA[m], q(getattr(eos, "kappa", getattr(eos, "m", None))))
+    if m == "pr-fit":
+        log.line("Twu α coefficients (L, M, N) = {}   volume translation c = {}",
+                 ", ".join(f"{c:.5g}" for c in eos.alpha_coeffs), q(eos.c, V_))
+    log.line("{} = {}", _ALPHA.get(m, "α(T)"), q(alpha))
+    log.line("A = aαP/(RT)² = {}   B = bP/RT = {}", q(A), q(B))
+    log.line("Cubic: {}", _POLY.get(m, ""))
+    roots = sorted(v.real for v in eos.raw_volumes if abs(complex(v).imag) < 1e-12 * abs(complex(v)) + 1e-30
+                   and complex(v).real > 0)
+    log.line("Real roots: Z = {}", ", ".join(f"{P * v / (R * T):.6g}" for v in roots) or "-")
+    for r in _cubic_roots(sub, m, T, P):
+        log.line("  {} root: Z = {}, V = {}, φ = {}", r.phase, q(r.Z), q(r.V, V_), q(r.phi))
+    if hasattr(eos, "V_l") and hasattr(eos, "V_g"):
+        log.line("Two roots: the stable one has the smaller φ (lower G) -> {}", st.phase)
+    explain_ideal_parts(sub, T, P)
+    log.line("H_R and S_R from the EOS departure functions: H_R = {}, S_R = {}", q(st.HR, E), q(st.SR, S_))
+
+
+def _explain_coolprop(sub, st):
+    rho = 1 / st.V
+    log.line("Reference EOS for {}: a(T, ρ) = a_ig + a_res, all properties from its derivatives", sub.coolprop)
+    if st.phase.startswith("two-phase"):
+        log.line("Inside the dome: {}", st.phase)
+    else:
+        log.line("Solve P(T, ρ) = P for the density: ρ = {} mol/m³", f"{rho:.6g}")
+    log.line("V = 1/ρ = {}", q(st.V, V_))
+    log.line("H = h(T, P) − h_ig(298.15 K, 1 bar) = {}", q(st.H, E))
+    log.line("S = s(T, P) − s_ig(298.15 K, 1 bar) = {}", q(st.S, S_))
+    if st.HR is not None:
+        log.line("Residual parts: H_R = {}, S_R = {}", q(st.HR, E), q(st.SR, S_))
+
+
+def explain_saturation(sub, T_sat, P_sat, L, V, model, given="T"):
+    if not log.on():
+        return
+    log.step("Saturation of {} at {} = {}", sub.name, given, q(T_sat if given == "T" else P_sat, T_ if given == "T" else P_))
+    if model == "coolprop":
+        log.line("Reference EOS: solve P_liq = P_vap, T_liq = T_vap and g_liq = g_vap (Maxwell criterion)")
+    elif model in _CUBICS:
+        log.line("Cubic EOS ({}): find P where the liquid and vapor roots have equal fugacity, φ_liq = φ_vap", model)
+    else:
+        log.line("Psat from the databank correlation; vapor from the {} model", model)
+    log.line("Tsat = {}   Psat = {}", q(T_sat, T_), q(P_sat, P_))
+    if L is not None:
+        log.line("Saturated liquid: V = {}, Z = {}, H = {}, S = {}", q(L.V, V_), q(L.Z), q(L.H, E), q(L.S, S_))
+    log.line("Saturated vapor:  V = {}, Z = {}, H = {}, S = {}", q(V.V, V_), q(V.Z), q(V.H, E), q(V.S, S_))
+    if L is not None:
+        if L.phi and V.phi:
+            log.line("Check: φ_liq = {}, φ_vap = {}", q(L.phi), q(V.phi))
+        log.line("ΔHvap = H_vap − H_liq = {}", q(V.H - L.H, E))
+        log.line("ΔSvap = S_vap − S_liq = {} (= ΔHvap/Tsat = {})", q(V.S - L.S, S_), q((V.H - L.H) / T_sat, S_))
+
+
+def explain_two_phase(sub, st, L, V, x):
+    if not log.on():
+        return
+    log.line("Two-phase mixture with vapor fraction x = {}", q(x))
+    log.line("V = (1 − x)V_liq + xV_vap = {}·{} + {}·{} = {}", q(1 - x), q(L.V, V_), q(x), q(V.V, V_), q(st.V, V_))
+    log.line("H = (1 − x)H_liq + xH_vap = {}·{} + {}·{} = {}", q(1 - x), q(L.H, E), q(x), q(V.H, E), q(st.H, E))
+    log.line("S = (1 − x)S_liq + xS_vap = {}·{} + {}·{} = {}", q(1 - x), q(L.S, S_), q(x), q(V.S, S_), q(st.S, S_))
+    explain_derived(st)

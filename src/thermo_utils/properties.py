@@ -5,7 +5,9 @@ import math
 import numpy as np
 
 from thermo_utils import pure
+from thermo_utils import steplog as log
 from thermo_utils.result import Result, row
+from thermo_utils.steplog import K, q
 from thermo_utils.units import (
     DIMENSIONLESS as D, MOLAR_ENERGY as E, MOLAR_ENTROPY as S, MOLAR_VOLUME as V,
     PRESSURE as P, TEMPERATURE as T, TYPED, R,
@@ -87,7 +89,36 @@ def substance_info(sub):
             row("UNIFAC groups", ", ".join(f"{k}×{v}" for k, v in sub.unifac_groups.items())),
         ])
     res.notes.append(sub.note or "Data: chemicals/thermo databanks (DIPPR, CRC, ChemSep) and CoolProp.")
+    _explain_info(sub)
     return res
+
+
+def _explain_info(sub):
+    if not log.on():
+        return
+    log.step("Databank lookup")
+    log.line("Name {} -> CAS {}, formula {}, M = {} g/mol", sub.name, sub.cas, sub.formula, f"{sub.MW:.6g}")
+    log.line("CoolProp reference EOS: {}", sub.coolprop or "none (cubic EOS will be used)")
+    log.step("Critical constants")
+    log.line("Tc = {}, Pc = {}, Vc = {}, ω = {}", q(sub.Tc, T), q(sub.Pc, P), q(sub.Vc, V), q(sub.omega))
+    if sub.Tc and sub.Pc and sub.Vc:
+        log.line("Zc = PcVc/(RTc) = {} · {} / ({} · {}) = {}", q(sub.Pc, P), q(sub.Vc, V), R, K(sub.Tc),
+                 q(sub.Pc * sub.Vc / (R * sub.Tc)))
+    if sub.Tb and sub.Tc:
+        log.line("Tbr = Tb/Tc = {} / {} = {}", K(sub.Tb), K(sub.Tc), q(sub.Tb / sub.Tc))
+    log.step("Formation data (ideal gas, 298.15 K)")
+    if sub.Hf is not None and sub.Gf is not None:
+        log.line("ΔHf° = {}, ΔGf° = {}", q(sub.Hf, E), q(sub.Gf, E))
+        log.line("ΔSf° = (ΔHf° − ΔGf°)/298.15 K = {}", q((sub.Hf - sub.Gf) / 298.15, S))
+    log.step("Ideal-gas heat capacity correlation")
+    try:
+        model = sub.Cp_ig_model
+        log.line("Method: {}", getattr(model, "method", type(model).__name__))
+        for t in (298.15, 500, 1000):
+            log.line("Cp_ig({}) = {}", q(t, T), q(sub.Cp_ig(t), S))
+        log.line("∫Cp_ig dT from 298.15 K to 1000 K = {}", q(sub.H_ig(298.15, 1000), E))
+    except Exception:
+        log.line("not available")
 
 
 # PVT
@@ -98,6 +129,7 @@ def pvt(sub, T_=None, P_=None, V_=None, model="auto"):
         raise ValueError("Give exactly two of T, P and V.")
     model = pure.resolve_model(sub, model)
     res = Result(f"PVT of {sub.name}", model=model)
+    _explain_pvt_solve(sub, T_, P_, V_, model)
     if V_ is None:
         st = pure.state(sub, T_, P_, model)
         roots = pure.all_roots(sub, T_, P_, model)
@@ -113,13 +145,56 @@ def pvt(sub, T_=None, P_=None, V_=None, model="auto"):
         st = pure.state_PV(sub, P_, V_, model)
         res.section(f"Solution ({_model_label(sub, model)})", _state_rows(st, False) + _density_rows(sub, st))
     res.notes += st.notes
-    res.section("Comparison between models", _compare(sub, T_, P_, V_))
+    pure.explain_state(sub, st)
+    if log.on():
+        log.line("Density ρ = M/V = {} kg/m³", f"{sub.MW / 1000 / st.V:.6g}")
+    compare = _compare(sub, T_, P_, V_)
+    log.step("Same calculation with every model")
+    for label, text in compare:
+        log.line("{:<8} {}", label, text)
+    res.section("Comparison between models", compare)
     res.plot = lambda: _plot_isotherm(sub, st.T, model, st)
     res.plot_name = f"pvt_{sub.name}"
     res.diagram = _isotherm_diagram(sub, model, st)
     return res
 
 
+def _explain_pvt_solve(sub, T_, P_, V_, model):
+    if not log.on() or V_ is None:
+        return
+    with log.muted():
+        st = pure.state_TV(sub, T_, V_, model) if P_ is None else pure.state_PV(sub, P_, V_, model)
+    unknown = "P" if P_ is None else "T"
+    log.step("Solve the {} model for {}", model, unknown)
+    if model == "ideal":
+        log.line("PV = RT  ->  {} = {}", "P = RT/V" if P_ is None else "T = PV/R", q(st.P, P) if P_ is None else q(st.T, T))
+    elif model == "virial":
+        B = pure.virial_B(sub, st.T)
+        log.line("Z = PV/RT = 1 + BP/RT  ->  V = RT/P + B, B = B(T) from Pitzer")
+        if P_ is None:
+            log.line("P = RT/(V − B) = {} · {} / ({} − {}) = {}", R, K(T_), q(V_, V), q(B, V), q(st.P, P))
+        else:
+            log.line("Solve RT/P + B(T) = V for T (Brent's method) -> T = {}, B = {}", q(st.T, T), q(B, V))
+    elif model == "coolprop":
+        log.line("ρ = 1/V = {} mol/m³; reference EOS solved for {} at (ρ, {})", f"{1 / V_:.6g}", unknown,
+                 "T" if P_ is None else "P")
+        log.line("{} = {}", unknown, q(st.P, P) if P_ is None else q(st.T, T))
+    else:
+        eq = {"pr": "P = RT/(V − b) − aα/(V² + 2bV − b²)", "pr-fit": "P = RT/(V − b) − aα/(V² + 2bV − b²) (translated V)",
+              "srk": "P = RT/(V − b) − aα/[V(V + b)]", "rk": "P = RT/(V − b) − a/[√T V(V + b)]",
+              "vdw": "P = RT/(V − b) − a/V²"}[model]
+        log.line(eq)
+        if P_ is None:
+            eos = pure._cubic(sub, model, T=T_, V=V_)
+            log.line("aα = {}, b = {}", q(eos.a_alpha), q(eos.b, V))
+            log.line("P = {}", q(st.P, P))
+        else:
+            log.line("T is found so that the equation gives P at the given V (α depends on T) -> T = {}", q(st.T, T))
+    if st.phase.startswith("two-phase"):
+        log.line("The point lies inside the saturation dome")
+
+
+@log.quiet
 def _isotherm_diagram(sub, model, st):
     P_max = max(st.P * 3, (sub.Pc or 1e6) * 1.2)
     curve = []
@@ -138,6 +213,7 @@ def _isotherm_diagram(sub, model, st):
                 + ([("dim", "saturation dome")] if d else []))
 
 
+@log.quiet
 def _compare(sub, T_, P_, V_):
     rows = []
     for m in _models_for(sub):
@@ -198,6 +274,12 @@ def state_properties(sub, T_=None, P_=None, x=None, model="auto"):
     st = _state_from(sub, T_, P_, x, model)
     res = Result(f"State of {sub.name}", model=pure.resolve_model(sub, model))
     res.section(f"Properties ({_model_label(sub, model)})", _state_rows(st) + _density_rows(sub, st))
+    if x is not None:
+        _explain_two_phase_input(sub, T_, P_, x, st)
+    else:
+        pure.explain_state(sub, st)
+    if log.on():
+        log.line("Density ρ = M/V = {} kg/m³", f"{sub.MW / 1000 / st.V:.6g}")
     res.notes += st.notes
     res.notes.append("Reference for H, S, U, G, A: ideal gas at 298.15 K and 1 bar (H = S = 0).")
     if pure.resolve_model(sub, model) == "coolprop" and st.HR is not None:
@@ -206,11 +288,22 @@ def state_properties(sub, T_=None, P_=None, x=None, model="auto"):
     return res
 
 
+def _explain_two_phase_input(sub, T_, P_, x, st):
+    if not log.on():
+        return
+    with log.muted():
+        T_sat, P_sat, L, Vs = pure.saturation(sub, T_, P_, st.model)
+    pure.explain_saturation(sub, T_sat, P_sat, L, Vs, st.model, "T" if T_ is not None else "P")
+    log.step("Two-phase mixture")
+    pure.explain_two_phase(sub, st, L, Vs, x)
+
+
 def _cp_derivatives(sub, st):
     import CoolProp
     AS = CoolProp.AbstractState("HEOS", sub.coolprop)
     AS.update(CoolProp.DmolarT_INPUTS, 1 / st.V, st.T)
     rows = []
+    log.step("Derivative properties from the reference EOS at (T, ρ)")
     for label, fn, unit in [
         ("Isothermal compressibility κ", AS.isothermal_compressibility, "1/Pa"),
         ("Volume expansivity β", AS.isobaric_expansion_coefficient, "1/K"),
@@ -221,6 +314,7 @@ def _cp_derivatives(sub, st):
     ]:
         try:
             rows.append(row(label, f"{fn():.6g} {unit}"))
+            log.line("{} = {} {}", label, f"{fn():.6g}", unit)
         except Exception:
             pass
     return rows
@@ -251,6 +345,8 @@ def property_change(sub, T1=None, P1=None, V1=None, x1=None, T2=None, P2=None, V
     if not given:
         s1 = _state_from(sub, T1, P1, x1, model, V1)
         s2 = _state_from(sub, T2, P2, x2, model, V2)
+        _explain_given(sub, s1, x1, "1")
+        _explain_given(sub, s2, x2, "2")
         label = ""
     else:
         if len(given) > 1:
@@ -267,12 +363,24 @@ def property_change(sub, T1=None, P1=None, V1=None, x1=None, T2=None, P2=None, V
         res.equations.append(f"{p_}2 = {p_}1 + Δ{p_}: the missing T, P or V is found by root solving")
     deltas = {f"Δ{p}": _clean(getattr(s2, p) - getattr(s1, p), getattr(s1, p), getattr(s2, p))
               for p in ("H", "S", "U", "G", "A")}
+    log.step("Changes 1 -> 2 (state functions: only the end states matter)")
+    for p_ in ("H", "S", "U", "G", "A"):
+        kind = S if p_ == "S" else E
+        log.line("Δ{} = {}2 − {}1 = {} − {} = {}", p_, p_, p_, q(getattr(s2, p_), kind), q(getattr(s1, p_), kind),
+                 q(deltas[f"Δ{p_}"], kind))
     rows = res.section(f"Changes 1 -> 2 ({model})")
     for k, v in deltas.items():
         rows.append(row(k, v, S if k == "ΔS" else E))
     if s1.HR is not None and s2.HR is not None and model != "ideal":
         dH_ig = sub.H_ig(s1.T, s2.T)
         dS_ig = sub.S_ig(s1.T, s2.T) - R * math.log(s2.P / s1.P)
+        log.step("Check through the residual-property path (1 -> ideal gas -> 2)")
+        log.line("ΔH = −H_R1 + ∫Cp_ig dT + H_R2 = {} + {} + {} = {}", q(-s1.HR, E), q(dH_ig, E), q(s2.HR, E),
+                 q(-s1.HR + dH_ig + s2.HR, E))
+        log.line("ΔS = −S_R1 + ∫Cp_ig/T dT − R ln(P2/P1) + S_R2 = {} + {} + {} = {}", q(-s1.SR, S), q(dS_ig, S),
+                 q(s2.SR, S), q(-s1.SR + dS_ig + s2.SR, S))
+        if model == "coolprop":
+            log.line("Small differences: ∫Cp_ig uses the databank Cp, the reference EOS has its own ideal-gas part")
         res.section("Residual-property path", [
             row("-H_R(state 1)", -s1.HR, E), row("ΔH ideal gas", dH_ig, E), row("+H_R(state 2)", s2.HR, E),
             row("-S_R(state 1)", -s1.SR, S), row("ΔS ideal gas", dS_ig, S), row("+S_R(state 2)", s2.SR, S),
@@ -284,6 +392,18 @@ def property_change(sub, T1=None, P1=None, V1=None, x1=None, T2=None, P2=None, V
     res.notes += [n for n in dict.fromkeys(s1.notes + s2.notes)]
     res.data = deltas
     return res
+
+
+def _explain_given(sub, st, x, i):
+    if not log.on():
+        return
+    if x is not None:
+        with log.muted():
+            T_sat, P_sat, L, Vs = pure.saturation(sub, T=st.T, model=st.model)
+        log.step("State {}: two-phase at Tsat = {}, Psat = {}", i, q(T_sat, T), q(P_sat, P))
+        pure.explain_two_phase(sub, st, L, Vs, x)
+    else:
+        pure.explain_state(sub, st, "State {}: T = {}, P = {}", i, q(st.T, T), q(st.P, P))
 
 
 def _clean(d, a, b):
@@ -305,9 +425,20 @@ def _solve_pair(sub, spec1, spec2, prop, delta, model):
         raise ValueError("Give three of T, P, V in total: two for one state and one for the other.")
     first_known = len(spec1) == 2
     known = pure.state_from(sub, model=model, **(spec1 if first_known else spec2))
+    a, b = ("1", "2") if first_known else ("2", "1")
+    kind = S if prop == "S" else E
+    _explain_given(sub, known, None, a)
     target = getattr(known, prop) + (delta if first_known else -delta)
     (k, v), = (spec2 if first_known else spec1).items()
-    other = _solve_state(sub, k, v, prop, target, model)
+    log.step("Find state {} from {} = {} and the given Δ{}", b, k, q(v, {"T": T, "P": P, "V": V}[k]), prop)
+    log.line("{}{} = {}{} {} Δ{} = {} {} {} = {}", prop, b, prop, a, "+" if first_known else "−", prop,
+             q(getattr(known, prop), kind), "+" if first_known else "−", q(delta, kind), q(target, kind))
+    with log.muted():
+        other = _solve_state(sub, k, v, prop, target, model)
+    log.line("Scan the free variable on a grid, bracket the sign change of {}(x) − {}{}, refine with Brent's method",
+             prop, prop, b)
+    log.line("Solution: T = {}, P = {}, V = {}", q(other.T, T), q(other.P, P), q(other.V, V))
+    _explain_given(sub, other, None, b)
     return (known, other) if first_known else (other, known)
 
 
@@ -338,6 +469,7 @@ def _solve_state(sub, k, v, prop, target, model):
 
 # Terminal diagrams
 
+@log.quiet
 def dome(sub, model, n=30, pv=False):
     """Molar saturation dome (T-S, or P-V), liquid side up and vapor side down."""
     m = pure.resolve_model(sub, model)
@@ -378,6 +510,7 @@ def saturation(sub, T_=None, P_=None, model="auto"):
     if model not in ("coolprop", "pr-fit", "pr", "srk", "rk", "vdw"):
         model = "coolprop" if sub.coolprop else "pr-fit"
     T_sat, P_sat, L, Vs = pure.saturation(sub, T_, P_, model)
+    pure.explain_saturation(sub, T_sat, P_sat, L, Vs, model, "T" if T_ is not None else "P")
     res = Result(f"Saturation of {sub.name}", model=model)
     res.section(f"Saturated states ({_model_label(sub, model)})", [
         row("Tsat", T_sat, T), row("Psat", P_sat, P),
@@ -386,17 +519,30 @@ def saturation(sub, T_=None, P_=None, model="auto"):
         row("ΔH vaporization", Vs.H - L.H, E), row("ΔS vaporization", Vs.S - L.S, S),
     ])
     corr = res.section("Correlations (databank)")
+    log.step("Databank correlations at Tsat = {}", q(T_sat, T))
     try:
-        corr.append(row("Psat (correlation)", sub._correlations.VaporPressures[0](T_sat), P))
-        corr.append(row("ΔHvap (correlation)", sub._correlations.EnthalpyVaporizations[0](T_sat), E))
+        vp, hv = sub._correlations.VaporPressures[0], sub._correlations.EnthalpyVaporizations[0]
+        corr.append(row("Psat (correlation)", vp(T_sat), P))
+        log.line("Psat = {}   (method {})", q(vp(T_sat), P), getattr(vp, "method", "-"))
+        corr.append(row("ΔHvap (correlation)", hv(T_sat), E))
+        log.line("ΔHvap = {}   (method {})", q(hv(T_sat), E), getattr(hv, "method", "-"))
         corr.append(row("V liquid (correlation)", sub.Vliq(T_sat, P_sat), V))
+        log.line("V liquid = {}", q(sub.Vliq(T_sat, P_sat), V))
     except Exception:
         pass
     if sub.Tb and sub.Tc and sub.Pc:
         Hn = riedel(sub)
         corr.append(row("ΔHvap at Tb, Riedel", Hn, E))
+        Trn = sub.Tb / sub.Tc
+        log.step("Riedel and Watson estimates")
+        log.line("Trn = Tb/Tc = {} / {} = {}", K(sub.Tb), K(sub.Tc), q(Trn))
+        log.line("ΔHn = R·Tb·1.092(ln Pc[bar] − 1.013)/(0.930 − Trn) = {} · {} · 1.092 · ({} − 1.013)/(0.930 − {}) = {}",
+                 R, K(sub.Tb), q(math.log(sub.Pc / 1e5)), q(Trn), q(Hn, E))
         if T_sat < sub.Tc:
-            corr.append(row("ΔHvap at Tsat, Watson", watson(sub, Hn, sub.Tb, T_sat), E))
+            Hw = watson(sub, Hn, sub.Tb, T_sat)
+            corr.append(row("ΔHvap at Tsat, Watson", Hw, E))
+            log.line("ΔH(Tsat) = ΔHn[(1 − Tr)/(1 − Trn)]^0.38 = {} · [(1 − {})/(1 − {})]^0.38 = {}",
+                     q(Hn, E), q(T_sat / sub.Tc), q(Trn), q(Hw, E))
     if sub.note:
         res.notes.append(sub.note)
     res.plot = lambda: _plot_psat(sub, model, T_sat, P_sat)
@@ -405,6 +551,7 @@ def saturation(sub, T_=None, P_=None, model="auto"):
     return res
 
 
+@log.quiet
 def _psat_diagram(sub, model, T_sat, P_sat):
     t_lo = min(max(sub.Tm or 0, 0.45 * sub.Tc), T_sat)
     curve = []

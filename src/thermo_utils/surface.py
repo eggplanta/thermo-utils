@@ -7,7 +7,9 @@ import re
 import numpy as np
 from scipy.optimize import curve_fit
 
+from thermo_utils import steplog as log
 from thermo_utils.result import Result, row
+from thermo_utils.steplog import K, q
 from thermo_utils.units import (
     CONCENTRATION as C, LENGTH as L, MOLAR_ENERGY as E, MOLAR_ENTROPY as S, MOLAR_VOLUME as V,
     PRESSURE as P, SURFACE_TENSION as ST, TEMPERATURE as T, DEFAULT_INPUT_UNITS, R, display, fmt, from_si,
@@ -71,6 +73,30 @@ def surface_tension(sub, T_):
     dT = 0.5
     dsdT = (sigma(sub, T_ + dT) - sigma(sub, T_ - dT)) / (2 * dT)
     res = Result(f"Surface tension of {sub.name}")
+    if log.on():
+        m = sub._correlations.SurfaceTensions[0]
+        log.step("Surface tension from the databank correlation ({})", getattr(m, "method", "-"))
+        log.line("σ(T) = {}", q(s0, ST))
+        log.line("dσ/dT by central difference (±{} K): [σ({}) − σ({})]/{} K = [{} − {}]/{} = {}", dT, q(T_ + dT, T),
+                 q(T_ - dT, T), 2 * dT, q(sigma(sub, T_ + dT), ST), q(sigma(sub, T_ - dT), ST), 2 * dT, _surface_entropy(dsdT))
+        log.step("Surface thermodynamics (per unit area)")
+        log.line("s = −dσ/dT = {}", _surface_entropy(-dsdT))
+        log.line("h = σ − T·dσ/dT = {} − {} × {} = {}", q(s0, ST), K(T_), _surface_entropy(dsdT), q(s0 - T_ * dsdT, ST))
+        log.step("Estimates")
+        try:
+            log.line("Brock-Bird: σ = Pc^(2/3)Tc^(1/3)Q(1 − Tr)^(11/9), Q = 0.1196[1 + Tbr ln(Pc/1.01325)/(1 − Tbr)] − 0.279")
+            log.line("  Tr = {}, Tbr = {}  ->  σ = {}", f"{T_ / sub.Tc:.6g}", f"{sub.Tb / sub.Tc:.6g}",
+                     q(Brock_Bird(T_, sub.Tb, sub.Tc, sub.Pc), ST))
+        except Exception:
+            log.line("Brock-Bird: not available")
+        par = (sub._constants.Parachors or [None])[0]
+        if par:
+            try:
+                dens = 1 / sub.Vliq(T_) - _rho_vap(sub, T_) / (sub.MW / 1000)
+                log.line("Macleod-Sugden: σ^¼ = [P](ρL − ρV); [P] = {}, ρL − ρV = {} mol/m³  ->  σ = {}", f"{par:.6g}",
+                         f"{dens:.6g}", q((par * dens) ** 4, ST))
+            except Exception:
+                pass
     res.section(f"At {fmt(T_, T)}", [
         row("σ", s0, ST),
         row("dσ/dT", _surface_entropy(dsdT)),
@@ -124,6 +150,14 @@ def kelvin(sub, T_, r, kind="drop"):
     sign = 1 if kind == "drop" else -1
     ratio = math.exp(sign * 2 * s0 * Vl / (r * R * T_))
     res = Result(f"Kelvin equation: {sub.name}")
+    if log.on():
+        log.step("Data at T = {}", q(T_, T))
+        log.line("σ = {}, V_liq = {}, Psat (flat) = {}", q(s0, ST), q(Vl, V), q(Ps, P))
+        log.step("Kelvin equation for a {}", "drop (convex, + sign)" if sign > 0 else "bubble/capillary (concave, − sign)")
+        log.line("ln(P/Psat) = {}2σV/(rRT) = {}2 × {} × {} / ({} × {} × {})", "+" if sign > 0 else "−", "+" if sign > 0 else "−",
+                 f"{s0:.6g} N/m", f"{Vl:.6g} m³/mol", f"{r:.6g} m", R, f"{T_:.6g} K")
+        log.line("ln(P/Psat) = {}  ->  P/Psat = {}", f"{math.log(ratio):.6g}", f"{ratio:.6g}")
+        log.line("P = {} × {} = {}", q(Ps, P), f"{ratio:.6g}", q(Ps * ratio, P))
     res.section(f"{'Drop (convex)' if sign > 0 else 'Bubble or capillary (concave)'}, r = {fmt(r, L, 'nm')}", [
         row("σ", s0, ST), row("V liquid", Vl, V), row("Psat (flat surface)", Ps, P),
         row("P/Psat", f"{ratio:.6g}"), row("P (curved surface)", Ps * ratio, P),
@@ -178,10 +212,15 @@ def bet(x, qm, c):
 def adsorption(path, model="all", adsorbate=None, T_=None, P0=None, cross_section=None):
     p, q = read_columns(path, [P, _q_to_mol_per_kg])
     res = Result("Adsorption isotherm fit")
+    if log.on():
+        log.step("Data read from {} ({} points), q converted to mol/kg", path, len(p))
+        log.table(["P (Pa)", "q (mol/kg)"], [[f"{a:.6g}", f"{b:.6g}"] for a, b in zip(p, q)])
+        log.line("Each model fitted by nonlinear least squares (scipy curve_fit); R² = 1 − SS_res/SS_tot")
     fits = {}
     if model in ("langmuir", "all"):
         (qm, K), _ = curve_fit(langmuir, p, q, p0=[q.max() * 1.2, 1 / np.median(p)], maxfev=20000)
         fits["Langmuir"] = (lambda x, a=qm, b=K: langmuir(x, a, b), p)
+        _log_fit("Langmuir: q = qm·K·P/(1 + K·P)", f"qm = {qm:.6g} mol/kg, K = {K:.6g} 1/Pa", p, q, langmuir(p, qm, K))
         res.section("Langmuir  q = qm·K·P/(1 + K·P)", [
             row("qm", f"{qm:.6g} mol/kg"), row("K", f"{K:.6g} 1/Pa"),
             row("R²", f"{_r2(q, langmuir(p, qm, K)):.5f}"),
@@ -189,6 +228,7 @@ def adsorption(path, model="all", adsorbate=None, T_=None, P0=None, cross_sectio
     if model in ("freundlich", "all"):
         (Kf, n), _ = curve_fit(freundlich, p, q, p0=[q.mean() / np.mean(p) ** 0.5, 2], maxfev=20000)
         fits["Freundlich"] = (lambda x, a=Kf, b=n: freundlich(x, a, b), p)
+        _log_fit("Freundlich: q = K·P^(1/n)", f"K = {Kf:.6g}, n = {n:.6g}", p, q, freundlich(p, Kf, n))
         res.section("Freundlich  q = K·P^(1/n)", [
             row("K", f"{Kf:.6g} mol/kg/Pa^(1/n)"), row("n", f"{n:.6g}"),
             row("R²", f"{_r2(q, freundlich(p, Kf, n)):.5f}"),
@@ -206,6 +246,10 @@ def adsorption(path, model="all", adsorbate=None, T_=None, P0=None, cross_sectio
                 mask = x < 0.9
             (qm, c), _ = curve_fit(bet, x[mask], q[mask], p0=[q[mask].mean(), 50], maxfev=20000)
             fits["BET"] = (lambda xx, a=qm, b=c, p0=P0: bet(xx / p0, a, b), p[mask])
+            log.step("BET with P0 = {}{}", fmt(P0, P), " (Psat of the adsorbate at T)" if adsorbate is not None else "")
+            log.line("x = P/P0; points with 0.05 < x < 0.35 used: {}", int(mask.sum()))
+            _log_fit("BET: q = qm·c·x/[(1 − x)(1 − x + c·x)]", f"qm = {qm:.6g} mol/kg, c = {c:.6g}", p[mask], q[mask],
+                     bet(x[mask], qm, c), step=False)
             rows = res.section("BET  q = qm·c·x/[(1 − x)(1 − x + c·x)],  x = P/P0", [
                 row("P0", P0, P), row("qm (monolayer)", f"{qm:.6g} mol/kg"), row("c", f"{c:.6g}"),
                 row("Points used (0.05 < x < 0.35)", str(int(mask.sum()))),
@@ -213,6 +257,10 @@ def adsorption(path, model="all", adsorbate=None, T_=None, P0=None, cross_sectio
             ])
             area = _cross_section(adsorbate, T_, cross_section)
             if area:
+                log.line("Area per molecule = {} nm²{}", f"{area * 1e18:.4g}",
+                         "" if cross_section else " (1.091·(V_liq/NA)^(2/3))")
+                log.line("Specific area = qm·NA·area = {} mol/kg × {} × {} m² = {} m²/g", f"{qm:.6g}", f"{NA:.6g}",
+                         f"{area:.4g}", f"{qm * NA * area / 1000:.6g}")
                 rows.append(row("Area per adsorbed molecule", f"{area * 1e18:.4g} nm²"))
                 rows.append(row("Specific surface area", f"{qm * NA * area / 1000:.6g} m²/g"))
     res.notes.append("Adsorbed amount in mol/kg (header 'q (cm3/g)' is read as STP volume).")
@@ -233,6 +281,18 @@ def adsorption(path, model="all", adsorbate=None, T_=None, P0=None, cross_sectio
 
     res.plot, res.plot_name = plot, "adsorption"
     return res
+
+
+def _log_fit(title, params, x, y, yfit, step=True):
+    if not log.on():
+        return
+    if step:
+        log.step(title)
+    else:
+        log.line(title)
+    log.line("Fitted: {}   R² = {}", params, f"{_r2(y, yfit):.6f}")
+    log.table(["P (Pa)", "q data", "q model", "residual"],
+              [[f"{a:.6g}", f"{b:.6g}", f"{c:.6g}", f"{b - c:+.3g}"] for a, b, c in zip(x, y, yfit)])
 
 
 def _cross_section(adsorbate, T_, given):
@@ -257,6 +317,15 @@ def gibbs_adsorption(path, T_, n=1):
     f = lambda cc, s0, gm, K: szyszkowski(cc, s0, gm, K, nrt)
     (s0, gm, K), _ = curve_fit(f, c, s, p0=[s_max, 3e-6, 1 / np.median(c[c > 0])], maxfev=20000)
     res = Result("Gibbs adsorption isotherm")
+    if log.on():
+        log.step("Data read from {} ({} points)", path, len(c))
+        log.line("Gibbs: Γ = −(1/nRT) dσ/d ln c, n = {}; nRT = {} J/mol", n, f"{nrt:.6g}")
+        log.line("Szyszkowski fit σ = σ0 − nRT·Γmax·ln(1 + K·c) (nonlinear least squares), then Γ = Γmax·K·c/(1 + K·c)")
+        log.line("σ0 = {}, Γmax = {} mol/m², K = {} m³/mol, R² = {}", q(s0, ST), f"{gm:.6g}", f"{K:.6g}",
+                 f"{_r2(s, f(c, s0, gm, K)):.6f}")
+        log.line("Area per molecule = 1/(Γmax·NA) = {} nm²", f"{1 / (gm * NA) * 1e18:.4g}")
+        log.table(["c", "σ data", "σ fit", "Γ (mol/m²)"],
+                  [[q(ci, C), q(si, ST), q(f(ci, s0, gm, K), ST), f"{gm * K * ci / (1 + K * ci):.4g}"] for ci, si in zip(c, s)])
     res.section("Szyszkowski fit  σ = σ0 − nRT·Γmax·ln(1 + K·c)", [
         row("σ0", s0, ST), row("Γmax", f"{gm:.6g} mol/m²"),
         row("Area per molecule at Γmax", f"{1 / (gm * NA) * 1e18:.4g} nm²"),
@@ -317,6 +386,16 @@ def micelles(T_, cmc=None, beta=0.0, T2=None, cmc2=None, path=None):
     x = cmc / (cmc + cw)
     dG = (1 + beta) * R * T_ * math.log(x)
     res = Result("Micellization")
+    if log.on():
+        if data:
+            log.step("CMC from σ vs ln c: best split into two straight lines (least squares)")
+            a, b = data[2], data[3]
+            log.line("Below CMC: σ = {} ln c + {};  above: σ = {} ln c + {}", f"{a[0]:.6g}", f"{a[1]:.6g}", f"{b[0]:.6g}", f"{b[1]:.6g}")
+            log.line("Intersection: ln CMC = (b1 − a1)/(a0 − b0) -> CMC = {}", q(cmc, C))
+        log.step("Standard Gibbs energy of micellization (phase-separation model)")
+        log.line("Water molar concentration = 1/V_liq = {} mol/m³", f"{cw:.6g}")
+        log.line("x_CMC = CMC/(CMC + c_water) = {}", f"{x:.6g}")
+        log.line("ΔG°mic = (1 + β)RT ln x_CMC = {} × {} × {} × ln({}) = {}", f"{1 + beta:g}", R, f"{T_:.6g} K", f"{x:.6g}", q(dG, E))
     rows = res.section(f"At {fmt(T_, T)}", [
         row("CMC", cmc, C), row("x_CMC (mole fraction)", f"{x:.6g}"),
         row("Counterion binding β", f"{beta:g}"), row("ΔG°mic", dG, E),
@@ -324,6 +403,9 @@ def micelles(T_, cmc=None, beta=0.0, T2=None, cmc2=None, path=None):
     if T2 is not None and cmc2 is not None:
         x2 = cmc2 / (cmc2 + 1 / water.Vliq(T2))
         dH = (1 + beta) * R * math.log(x2 / x) / (1 / T2 - 1 / T_)
+        log.step("Temperature dependence (two CMC values)")
+        log.line("ΔH°mic = (1 + β)R ln(x2/x1)/(1/T2 − 1/T1) = {}", q(dH, E))
+        log.line("ΔS°mic = (ΔH° − ΔG°)/T = {}", q((dH - dG) / T_, S))
         rows += [row("ΔH°mic", dH, E), row("ΔS°mic", (dH - dG) / T_, S)]
     if data:
         res.notes.append("CMC from the break point of σ vs ln c (two straight lines).")

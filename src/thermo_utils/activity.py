@@ -7,6 +7,7 @@ from thermo import NRTL, UNIQUAC, IdealSolution
 from thermo.interaction_parameters import IPDB
 from thermo.unifac import DOUFIP2016, DOUFSG, UFIP, UFSG, UNIFAC
 
+from thermo_utils import steplog as log
 from thermo_utils.units import R
 
 MODELS = {
@@ -91,6 +92,60 @@ class GEModel:
             s = L12 / (x1 + x2 * L12) - L21 / (x2 + x1 * L21)
             return [-math.log(x1 + x2 * L12) + x2 * s, -math.log(x2 + x1 * L21) - x1 * s]
         return [math.log(g) for g in self._thermo(T, _safe(xs)).gammas()]
+
+    def explain(self, T, xs):
+        """Log how the activity coefficients are obtained."""
+        if not log.on():
+            return
+        xs = [max(float(x), 0.0) for x in xs]
+        lg = self.ln_gammas(T, xs)
+        names = [s.name for s in self.subs]
+        log.line("Activity model: {}", MODELS.get(self.name, self.name))
+        if self.name == "margules":
+            A12, A21 = self.params
+            x1, x2 = xs
+            log.line("A12 = {}, A21 = {}", A12, A21)
+            log.line("ln γ1 = x2²[A12 + 2(A21 − A12)x1] = {}²[{} + 2({} − {}){}] = {}", x2, A12, A21, A12, x1, lg[0])
+            log.line("ln γ2 = x1²[A21 + 2(A12 − A21)x2] = {}²[{} + 2({} − {}){}] = {}", x1, A21, A12, A21, x2, lg[1])
+        elif self.name == "vanlaar":
+            A12, A21 = self.params
+            x1, x2 = xs
+            log.line("A'12 = {}, A'21 = {}", A12, A21)
+            log.line("ln γ1 = A'12[A'21x2/(A'12x1 + A'21x2)]² = {}", lg[0])
+            log.line("ln γ2 = A'21[A'12x1/(A'12x1 + A'21x2)]² = {}", lg[1])
+        elif self.name == "wilson":
+            L12, L21 = self.params
+            x1, x2 = xs
+            log.line("Λ12 = {}, Λ21 = {}", L12, L21)
+            log.line("ln γ1 = −ln(x1 + x2Λ12) + x2[Λ12/(x1 + x2Λ12) − Λ21/(x2 + x1Λ21)] = {}", lg[0])
+            log.line("ln γ2 = −ln(x2 + x1Λ21) − x1[Λ12/(x1 + x2Λ12) − Λ21/(x2 + x1Λ21)] = {}", lg[1])
+        elif self.name == "nrtl":
+            m = self._thermo(T, _safe(xs))
+            log.line("τij = bij/T, Gij = exp(−αij·τij)")
+            log.line("ln γi = Σj τji Gji xj/Σk Gki xk + Σj [xj Gij/Σk Gkj xk](τij − Σm xm τmj Gmj/Σk Gkj xk)")
+            log.table(["i", "j", "bij (K)", "αij", "τij", "Gij"],
+                      [[names[i], names[j], self._b[i][j], self._alpha[i][j], m.taus()[i][j], m.Gs()[i][j]]
+                       for i in range(len(xs)) for j in range(len(xs)) if i != j])
+        elif self.name == "uniquac":
+            m = self._thermo(T, _safe(xs))
+            log.line("ln γi = ln γi(combinatorial: r, q) + ln γi(residual: τij = exp(bij/T))")
+            log.table(["species", "r", "q"], [[s.name, s.r, s.q] for s in self.subs])
+            log.table(["i", "j", "τij"], [[names[i], names[j], m.taus()[i][j]]
+                                          for i in range(len(xs)) for j in range(len(xs)) if i != j])
+        elif self.name.startswith("unifac"):
+            from thermo.unifac import DOUFSG, UFSG
+            table = UFSG if self.name == "unifac" else DOUFSG
+            m = self._thermo(T, _safe(xs))
+            for s in self.subs:
+                groups = s.unifac_groups if self.name == "unifac" else s._constants.UNIFAC_Dortmund_groups[0]
+                log.line("Groups of {}: {}", s.name, ", ".join(
+                    f"{n}×{table[k].group if k in table else k}" for k, n in groups.items()))
+            log.line("ln γi = ln γi(combinatorial, size/shape) + ln γi(residual, group interactions)")
+            log.table(["species", "x", "ln γ comb", "ln γ res", "ln γ"],
+                      [[n, x, c, r_, c + r_] for n, x, c, r_ in zip(names, xs, m.lngammas_c(), m.lngammas_r())])
+        else:
+            log.line("Ideal solution: γi = 1")
+        log.table(["species", "x", "ln γ", "γ"], [[n, x, l, math.exp(l)] for n, x, l in zip(names, xs, lg)])
 
     def gammas(self, T, xs):
         return [math.exp(v) for v in self.ln_gammas(T, xs)]

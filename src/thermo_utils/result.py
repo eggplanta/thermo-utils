@@ -17,6 +17,7 @@ class Result:
     equations: list = field(default_factory=list)
     tables: list = field(default_factory=list)
     diagram: dict | None = None
+    log: list = field(default_factory=list)
 
     def section(self, heading, rows=None):
         self.sections.append((heading, list(rows or [])))
