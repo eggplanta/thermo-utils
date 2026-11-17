@@ -41,13 +41,14 @@ or `uv tool install thermo-utils`, or `pip install thermo-utils` inside a virtua
 
 ## Usage
 
-Run `thermo-utils` to open the interactive menu (Esc exits; the program closes after showing a result), or run a calculation directly:
+Run `thermo-utils` to open the interactive menu (Esc exits), or run a calculation directly:
 
 ```bash
 thermo-utils delta water T1=25C P1=1atm T2=300C P2=20bar
 thermo-utils delta nitrogen T1=300 P1=1bar V2=3117cm3/mol dS=0
 thermo-utils pump water T1=25C P1=1atm P2=50bar efficiency=0.75 flow=10kg/s
 thermo-utils otto T1=27C P1=100kPa r=8 q_in=800
+thermo-utils otto T1=27C P1=100kPa r=8 q_in=800 --details   # every step of the calculation
 thermo-utils brayton T1=300 T3=1300 w_net=300 eta_c=0.85     # finds rp
 thermo-utils rankine P1=10kPa P3=3MPa x3=1 Wdot=10MW eta_t=0.87
 thermo-utils step steam-turbine P1=3MPa T1=350C P2=10kPa x2=0.9
@@ -62,6 +63,7 @@ thermo-utils info ammonia   # databank values of a substance
 - **Devices:** `pump`, `compressor`, `turbine` and `valve` are shortcuts for `device kind=...`.
 - **Cycles:** give any values that fix the cycle (states `T1`...`P4`, `v`, `u`, `h`, `s`, `x`, or results like `r`, `rp`, `rc`, `q_in`, `w_net`, `eta`, `mep`, `Wdot`) and the rest is solved. Energies default to kJ/kg. Gas cycles use Cp(T); `k=1.4` switches to the cold air-standard.
 - **Plots:** saved as PNG in `./thermo-plots` (or `$THERMO_UTILS_PLOTS`) and opened on request.
+- **Details:** after a result, **Show details** opens the step-by-step calculation, like a worked exercise: formulas, substituted values and the result of each step, iterations included (↑/↓ scroll, q goes back). On the command line, add `--details`.
 
 ## Calculations
 
@@ -119,7 +121,7 @@ thermo-utils info ammonia   # databank values of a substance
 
 The `auto` model uses the reference EOS when available and the fitted Peng-Robinson otherwise. Its α function and volume shift are fitted to the databank vapor pressure and liquid density of each substance.
 
-Every result starts with the equations used in the calculation.
+Every result starts with the equations used in the calculation, and **Show details** lists each step with its numbers.
 H, S, U, G and A share one reference state (ideal gas at 298.15 K and 1 bar), so differences between models are meaningful.
 Data come from [chemicals](https://github.com/CalebBell/chemicals), [thermo](https://github.com/CalebBell/thermo) and CoolProp.
 
