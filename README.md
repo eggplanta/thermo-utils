@@ -64,6 +64,7 @@ thermo-utils info ammonia   # databank values of a substance
 - **Cycles:** give any values that fix the cycle (states `T1`...`P4`, `v`, `u`, `h`, `s`, `x`, or results like `r`, `rp`, `rc`, `q_in`, `w_net`, `eta`, `mep`, `Wdot`) and the rest is solved. Energies default to kJ/kg. Gas cycles use Cp(T); `k=1.4` switches to the cold air-standard.
 - **Plots:** saved as PNG in `./thermo-plots` (or `$THERMO_UTILS_PLOTS`) and opened on request.
 - **Details:** after a result, **Show details** opens the step-by-step calculation, like a worked exercise: formulas, substituted values and the result of each step, iterations included (↑/↓ scroll, q goes back). On the command line, add `--details`.
+- **Percent:** `0.2` and `20%` are the same; values without `%` are fractions (efficiencies, excess air, qualities).
 
 ## Calculations
 
