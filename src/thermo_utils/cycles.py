@@ -753,13 +753,15 @@ def solve(model, fluid, given):
         raise ValueError(f"Not enough data: give {-extra} more value(s). The cycle is set by {names} "
                          "or any other values that fix them.")
     kinds = {v.key: v.kind for v in all_vars(model)}
-    for combo in itertools.combinations(optional, min(extra, len(optional))):
-        unknown = required + list(combo)
-        base = fixed | {v.key: v.default for v in missing if v not in combo and v.default is not REQUIRED}
-        sols = _roots(model, fluid, base, unknown, eqs, kinds)
-        if sols:
-            assumed = {v.key: v.default for v in optional if v not in combo and v.default is not None and v.kind != D}
-            return sols, assumed
+    for n in range(min(extra, len(optional)) + 1):
+        for combo in itertools.combinations(optional, n):
+            unknown = required + list(combo)
+            base = fixed | {v.key: v.default for v in missing if v not in combo and v.default is not REQUIRED}
+            sols = _roots(model, fluid, base, unknown, eqs, kinds)
+            if sols:
+                assumed = {v.key: v.default for v in optional
+                           if v not in combo and v.default is not None and v.kind != D}
+                return sols, assumed
     raise ValueError("No solution: the data are inconsistent, out of range or not enough to fix the cycle.")
 
 

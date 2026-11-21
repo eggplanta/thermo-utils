@@ -67,7 +67,7 @@ def parse_value(f, text):
             display.adopt(f.qkind, unit, name=f.name)
         return value
     if f.type == NUMBER:
-        return float(text.replace(",", ".")) if "/" not in text else _ratio(text)
+        return _number(text)
     if f.type == INTEGER:
         return int(text)
     if f.type == LIST:
@@ -85,6 +85,13 @@ def parse_value(f, text):
 def _split(text):
     sep = ";" if ";" in text else ","
     return [t.strip() for t in text.split(sep) if t.strip()]
+
+
+def _number(text):
+    text = text.replace(",", ".")
+    if text.endswith("%"):
+        return float(text[:-1]) / 100
+    return _ratio(text) if "/" in text else float(text)
 
 
 def _ratio(text):
@@ -157,14 +164,14 @@ CALCS = [
         _sub(), _q("T_", "T (default: normal boiling point)", TEMPERATURE, True),
     ]),
     Calc("flame", HEAT, "Adiabatic flame temperature", heat.adiabatic_flame, [
-        _sub("fuel", "Fuel"), Field("excess_air", "Excess air fraction (0.2 = 20 %)", NUMBER, default=0.0),
+        _sub("fuel", "Fuel"), Field("excess_air", "Excess air (0.2 or 20%)", NUMBER, default=0.0),
         _q("T_in", "Inlet temperature", TEMPERATURE, default=298.15),
     ]),
     Calc("device", DEVICES, "Compressor, pump, turbine or valve (one step)", devices.flow_device, [
         _sub(), Field("kind", "Device", CHOICE, choices={
             "compressor": "compressor", "pump": "pump", "turbine": "turbine/expander", "valve": "throttle valve"}),
         _q("T1", "Inlet T", TEMPERATURE), _q("P1", "Inlet P", PRESSURE), _q("P2", "Outlet P", PRESSURE),
-        Field("efficiency", "Isentropic efficiency (0-1)", NUMBER, default=1.0), MODEL_FIELD, FLOW_FIELD,
+        Field("efficiency", "Isentropic efficiency (0.75 or 75%)", NUMBER, default=1.0), MODEL_FIELD, FLOW_FIELD,
     ]),
 ]
 

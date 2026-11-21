@@ -125,6 +125,9 @@ def _virial_state(sub, T, P):
     CpR = -R * Pr * Tr * (d2B0 + w * d2B1)
     H, S, Cp = _ideal_parts(sub, T, P)
     V = R * T / P + B
+    if V <= 0:
+        raise ValueError(f"The virial equation does not apply here: it gives V ≤ 0 (Z = {P * V / (R * T):.3g}). "
+                         "The fluid is liquid at these conditions.")
     st = State(T, P, V, "gas", "virial", H + HR, S + SR, Cp + CpR, None, HR, SR,
                math.exp(Pr / Tr * (B0 + w * B1)))
     if T < sub.Tc and P > sub.Psat(T):

@@ -282,6 +282,10 @@ def parse_quantity(text, kind, default_unit=None):
     return to_si(value, unit, kind)
 
 
+_SNAP = {TEMPERATURE, PRESSURE, MOLAR_VOLUME, MOLAR_ENERGY, MOLAR_ENTROPY, SPECIFIC_ENERGY,
+         SPECIFIC_ENTROPY, SPECIFIC_VOLUME, POWER, ENERGY}
+
+
 def fmt(value, kind=DIMENSIONLESS, unit=None, digits=6):
     if value is None:
         return "-"
@@ -293,6 +297,8 @@ def fmt(value, kind=DIMENSIONLESS, unit=None, digits=6):
     except ValueError:
         unit = DEFAULT_INPUT_UNITS[kind] if kind != MOLAR_ENERGY else "kJ/mol"
         shown = from_si(value, unit, kind)
+    if kind in _SNAP and abs(shown) < 1e-9:
+        shown = 0.0
     label = _LABELS.get(_norm(unit), unit)
     text = f"{shown:.{digits}g} {label}"
     return text if _PREFIX[0] is None else apply_prefix(text, _PREFIX[0])
