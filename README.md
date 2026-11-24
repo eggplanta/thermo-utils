@@ -52,7 +52,8 @@ thermo-utils otto T1=27C P1=100kPa r=8 q_in=800 --details   # every step of the 
 thermo-utils brayton T1=300 T3=1300 w_net=300 eta_c=0.85     # finds rp
 thermo-utils rankine P1=10kPa P3=3MPa x3=1 Wdot=10MW eta_t=0.87
 thermo-utils step steam-turbine P1=3MPa T1=350C P2=10kPa x2=0.9
-thermo-utils diagram ethanol,water P=1atm --plot --open
+thermo-utils diagram ethanol,water P=1atm --plot
+thermo-utils rankine P1=10kPa P3=8.6MPa T3=500C --plot --csv   # P-v and T-s plots + result table
 thermo-utils gibbs CH4,H2O,CO,CO2,H2 T=1000 P=1 feed=CH4=2,H2O=3
 thermo-utils list           # every calculation and its inputs
 thermo-utils info ammonia   # databank values of a substance
@@ -62,7 +63,7 @@ thermo-utils info ammonia   # databank values of a substance
 - **Substances:** English names, formulas or CAS numbers (`water`, `H2O`, `7732-18-5`), right after the calculation name. `air` is available as a pseudo-pure fluid (reference EOS of Lemmon et al., 2000). Mixtures are comma separated (`ethanol,water`).
 - **Devices:** `pump`, `compressor`, `turbine` and `valve` are shortcuts for `device kind=...`.
 - **Cycles:** give any values that fix the cycle (states `T1`...`P4`, `v`, `u`, `h`, `s`, `x`, or results like `r`, `rp`, `rc`, `q_in`, `w_net`, `eta`, `mep`, `Wdot`) and the rest is solved. Energies default to kJ/kg. Gas cycles use Cp(T); `k=1.4` switches to the cold air-standard.
-- **Plots:** saved as PNG in `./thermo-plots` (or `$THERMO_UTILS_PLOTS`) and opened on request.
+- **Plot and Table (CSV):** after a result, **Plot** saves a PNG (with a CSV of the curve data) and **Table (CSV)** saves every computed value as `section, item, quantity, value, unit`; both open in the default app. Plots exist for cycles, devices, property changes, phase diagrams and the other calculations where a curve helps. Files go to the cache folder (`~/.cache/thermo-utils`, or `$THERMO_UTILS_PLOTS`), which keeps the latest 100. On the command line: `--plot`, `--csv`, and `--no-open` to only save.
 - **Details:** after a result, **Show details** opens the step-by-step calculation, like a worked exercise: formulas, substituted values and the result of each step, iterations included (↑/↓ scroll, q goes back). On the command line, add `--details`.
 - **Percent:** `0.2` and `20%` are the same; values without `%` are fractions (efficiencies, excess air, qualities).
 

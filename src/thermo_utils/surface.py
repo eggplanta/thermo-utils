@@ -344,9 +344,12 @@ def gibbs_adsorption(path, T_, n=1):
         ax.plot([from_si(v, cu, C) for v in c], [from_si(v, su, ST) for v in s], "ko", label="data")
         ax.plot([from_si(v, cu, C) for v in grid], [from_si(v, su, ST) for v in f(grid, s0, gm, K)], label="fit")
         ax2 = ax.twinx()
-        ax2.plot([from_si(v, cu, C) for v in grid], gm * K * grid / (1 + K * grid), "--", color="gray")
-        ax2.set_ylabel("Γ (mol/m²)")
-        ax.set_xlabel(f"c ({cu})"); ax.set_ylabel(f"σ ({su})"); ax.grid(alpha=0.3); ax.legend()
+        ax2.plot([from_si(v, cu, C) for v in grid], 1e6 * gm * K * grid / (1 + K * grid), "--", color="gray",
+                 label="Γ (right axis)")
+        ax2.set_ylabel("Γ (µmol/m²)"); ax2.grid(False); ax2.spines["right"].set_visible(True)
+        ax.set_xlabel(f"c ({cu})"); ax.set_ylabel(f"σ ({su})"); ax.grid(alpha=0.3)
+        h1, l1 = ax.get_legend_handles_labels(); h2, l2 = ax2.get_legend_handles_labels()
+        ax.legend(h1 + h2, l1 + l2, loc="center right")
         ax.set_title(f"Gibbs adsorption at {T_:.2f} K")
         fig.tight_layout()
         return fig

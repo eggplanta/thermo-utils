@@ -492,7 +492,8 @@ def dome(sub, model, n=30, pv=False):
 def ts_diagram(sub, model, states, labels, curves=(), legend=(), equipment=None):
     d = dome(sub, model)
     return dict(curves=list(curves), points=[(st.S, st.T) for st in states], labels=labels,
-                axes=(("S", S), ("T", T)), dome=d, equipment=equipment,
+                axes=(("S", S), ("T", T)), dome=d, equipment=equipment, arrows=True,
+                dome_fine=(lambda: dome(sub, model, 90)) if d else None,
                 legend=list(legend) + ([("dim", "saturation dome")] if d else []))
 
 

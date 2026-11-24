@@ -144,15 +144,14 @@ class Fluid:
         hf, hg = self.sat(p, 0)["h"], self.sat(p, 1)["h"]
         return (h - hf) / (hg - hf)
 
-    def dome(self, n=60):
+    def dome(self, n=60, pv=False, t_min=0):
         AS = self.AS
-        t_lo, t_hi = max(AS.Ttriple(), AS.Tmin()) + 0.01, AS.T_critical() - 0.05
+        t_lo, t_hi = max(AS.Ttriple(), AS.Tmin(), t_min) + 0.01, AS.T_critical() - 0.05
         liq, vap = [], []
         for t in np.linspace(t_lo, t_hi, n):
-            AS.update(self.CP.QT_INPUTS, 0, t)
-            liq.append((AS.smass(), t))
-            AS.update(self.CP.QT_INPUTS, 1, t)
-            vap.append((AS.smass(), t))
+            for q_, side in ((0, liq), (1, vap)):
+                AS.update(self.CP.QT_INPUTS, q_, t)
+                side.append((1 / AS.rhomass(), AS.p()) if pv else (AS.smass(), t))
         return liq + vap[::-1]
 
 
@@ -855,6 +854,8 @@ def run(model_id, sub, k=None, cp=None, steps=False, **given):
                            _process_rows(model, out)))
         res.section("Cycle", [_row(v, out, given) for v in extra])
         res.diagram = diagram(model, fluid, out)
+        res.plot = lambda: _plot(plot_panels(model, fluid, out), res.title)
+        res.plot_name = f"{model.id}_{sub.name}"
     for alt in sols[1:]:
         order = model.primaries + all_vars(model)
         diff = list({v.key: v for v in order if v.key in alt and v.key not in given
@@ -1076,24 +1077,45 @@ def equations(model, fluid, out):
 
 # Diagram data
 
-def diagram(model, fluid, out):
-    pv = model.id in ("otto", "diesel")
+def _plot(panels, title):
+    from thermo_utils import plots
+    return plots.figure(panels, title)
+
+
+def diagram(model, fluid, out, pv=None):
+    pv = model.id in ("otto", "diesel") if pv is None else pv
     curves, n = [], model.states
-    for step, _, kind in model.processes:
+    for step, name, kind in model.processes:
         a, b = int(step[0]), int(step[-1])
-        if pv:
-            curves.append(_pv_path(out, a, b, kind))
-        else:
-            curves.append(_ts_path(model, fluid, out, a, b, kind))
-    dome = fluid.dome() if model.fluid == "fluid" else None
+        pts = _pv_path(out, a, b, kind) if pv else _ts_path(model, fluid, out, a, b, kind)
+        curves.append({"pts": pts, "style": "accent", "name": f"{step} {name}"})
+    dome = None
+    if model.fluid == "fluid":
+        t_min = min(out[f"T{i}"] for i in range(1, n + 1)) - 15 if pv else 0
+        dome = fluid.dome(pv=pv, t_min=t_min)
     if pv:
         pts = [(out[f"v{i}"], out[f"P{i}"]) for i in range(1, n + 1)]
         axes = (("v", V), ("P", P))
     else:
         pts = [(out[f"s{i}"], out[f"T{i}"]) for i in range(1, n + 1)]
         axes = (("s", S), ("T", T))
-    return dict(curves=curves, points=pts, axes=axes, dome=dome, ylog=pv,
+    return dict(curves=curves, points=pts, axes=axes, dome=dome, ylog=pv, arrows=True,
                 equipment=model.id if model.id in ("brayton", "rankine") else None)
+
+
+def plot_panels(model, fluid, out):
+    """P-v and T-s of a cycle; the enclosed area is the net work when every step is reversible."""
+    reversible = all(out.get(k, 1.0) == 1.0 for k in ("eta_c", "eta_e", "eta_t", "eta_p"))
+    panels = []
+    for pv in (True, False):
+        d = diagram(model, fluid, out, pv)
+        d["title"] = "P-v diagram" if pv else "T-s diagram"
+        d["xlog"] = pv and model.fluid == "fluid"
+        d["legend"] = [("accent", "cycle")] + ([("dim", "saturation dome")] if d["dome"] else [])
+        if reversible:
+            d["fill"] = "area = net work" if pv else "area = net heat = net work"
+        panels.append(d)
+    return panels
 
 
 STEP_EQUIPMENT = {
@@ -1121,7 +1143,7 @@ def step_diagram(model, fluid, out):
     if dome:
         legend.append(("dim", "saturation dome"))
     return dict(curves=curves, points=pts, labels=labels, axes=(("s", S), ("T", T)), dome=dome,
-                legend=legend, equipment=STEP_EQUIPMENT[model.id])
+                legend=legend, equipment=STEP_EQUIPMENT[model.id], arrows=True)
 
 
 def _pv_path(out, a, b, kind):

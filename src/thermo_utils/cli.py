@@ -150,21 +150,40 @@ def show_diagram(d):
     console.print()
 
 
-def handle_plot(res, ask=True, save=False, open_it=False):
-    if res.plot is None:
+def _plot_factory(res):
+    if res.plot is not None:
+        return res.plot
+    if res.diagram:
+        return lambda: plots.figure([res.diagram], res.title)
+    return None
+
+
+def _footer(res):
+    return f"model: {res.model}" if res.model else ""
+
+
+def save_plot(res, open_it=True):
+    factory = _plot_factory(res)
+    if factory is None:
+        console.print("[yellow]No plot for this result.[/yellow]")
         return
-    if ask:
-        save = ask_text("Save a plot of this result? [dim](y/N)[/dim]").lower().startswith("y")
-        if not save:
-            return
-        open_it = not ask_text("Open it now? [dim](Y/n)[/dim]").lower().startswith("n")
-    if not save:
-        return
+    name = res.plot_name if res.plot is not None and res.plot_name != "plot" else res.title
     with console.status("Plotting..."):
-        path = plots.save(res.plot, res.plot_name)
-    console.print(f"[green]Plot saved:[/green] {path}")
+        png, data = plots.save(factory, name, _footer(res))
+    console.print(f"[green]Plot saved:[/green] {png}\n[green]Plot data:[/green] {data}", soft_wrap=True)
+    if open_it:
+        plots.open_file(png)
+
+
+def save_csv(res, open_it=True):
+    path = plots.export_csv(res, res.title)
+    console.print(f"[green]Table saved:[/green] {path}", soft_wrap=True)
     if open_it:
         plots.open_file(path)
+
+
+def _has_table(res):
+    return res is not None and bool(res.sections or res.tables or res.pair)
 
 
 # Keyboard input
@@ -603,7 +622,6 @@ def run_interactive(calc):
     with console.status("Calculating..."):
         res = compute(calc, kwargs)
     show_result(res, calc)
-    handle_plot(res)
     return res
 
 
@@ -642,13 +660,30 @@ def _log_inputs(calc, kwargs):
             steplog.line(f"{name} = {{}}", v)
 
 
+PLOT, TABLE, DETAILS = "Plot", "Table (CSV)", "Show details"
+
+
 def after_result(res):
-    """Menu / Show details buttons; False to exit."""
-    options = ["Menu", "Show details"] if res is not None and res.log else ["Menu"]
+    """Menu / Show details / Plot / Table buttons; False to exit."""
+    options = ["Menu"]
+    if res is not None and res.log:
+        options.append(DETAILS)
+    if res is not None and _plot_factory(res) is not None:
+        options.append(PLOT)
+    if _has_table(res):
+        options.append(TABLE)
     default = 0
-    while (pick := buttons(options, default)) == "Show details":
-        show_log(res)
-        default = 1
+    while (pick := buttons(options, default)) not in ("Menu", None):
+        default = options.index(pick)
+        try:
+            if pick == DETAILS:
+                show_log(res)
+            elif pick == PLOT:
+                save_plot(res)
+            else:
+                save_csv(res)
+        except Exception as exc:
+            console.print(f"[red]Error: {exc}[/red]")
     return pick is not None
 
 
@@ -821,8 +856,9 @@ DEVICES = ("compressor", "pump", "turbine", "valve")
 def run(
     calc_id: str = typer.Argument(..., help="Calculation id (see 'thermo-utils list')"),
     args: Optional[List[str]] = typer.Argument(None, help="Substances, then inputs as key=value"),
-    plot: bool = typer.Option(False, "--plot", help="Save a plot when available"),
-    open_plot: bool = typer.Option(False, "--open", help="Open the saved plot"),
+    plot: bool = typer.Option(False, "--plot", help="Save the plot (PNG + data CSV) and open it"),
+    table: bool = typer.Option(False, "--csv", help="Save the result as a CSV table and open it"),
+    no_open: bool = typer.Option(False, "--no-open", help="With --plot/--csv: save without opening"),
     t_unit: str = typer.Option(None, "--T-unit", help="Display unit for temperature"),
     p_unit: str = typer.Option(None, "--P-unit", help="Display unit for pressure"),
     e_unit: str = typer.Option(None, "--E-unit", help="Display unit for molar energy"),
@@ -872,7 +908,10 @@ def run(
         console.rule("[b]Calculation details[/b]", style="dim")
         for ln in steplog.render(res.log):
             console.print(ln, markup=False, highlight=False, soft_wrap=True)
-    handle_plot(res, ask=False, save=plot or open_plot, open_it=open_plot)
+    if plot:
+        save_plot(res, not no_open)
+    if table:
+        save_csv(res, not no_open)
 
 
 def main():
