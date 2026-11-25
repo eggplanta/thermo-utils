@@ -91,6 +91,17 @@ def _per_kg_to_molar(kind, u):
     return _MASS_FACTORS[kind][u] * mw / 1000
 
 
+def _molar_to_per_kg(kind, u):
+    mw = _MOLAR_MASS[0]
+    if mw is None:
+        raise ValueError(f"'{label(u)}' is per mole: it needs one substance to convert with the molar mass.")
+    return _FACTORS[_SPECIFIC[kind]][u] * 1000 / mw
+
+
+def _is_molar(kind, u):
+    return kind in _SPECIFIC and u in _FACTORS[_SPECIFIC[kind]]
+
+
 _ALIASES = {
     "°c": "c", "ºc": "c", "degc": "c", "celsius": "c",
     "°f": "f", "ºf": "f", "degf": "f",
@@ -151,7 +162,7 @@ class DisplayUnits:
             _ADOPTED.add(kind)
             basis = _MASS_BASIS.get(_norm(unit))
             if kind in _SPECIFIC and basis:
-                basis = {k: basis[m] for k, m in _SPECIFIC.items()}
+                basis = {k: basis[m] for k, m in _SPECIFIC.items() if m in basis}
             for other, u in (basis or {}).items():
                 if other != kind and other not in _ADOPTED:
                     setattr(self, other, label(u))
@@ -229,7 +240,8 @@ def _norm(unit):
 def units_of(kind):
     if kind == TEMPERATURE:
         return ["K", "C", "F", "R"]
-    return list(_FACTORS[kind]) + list(_MASS_FACTORS.get(kind, {}))
+    molar = list(_FACTORS[_SPECIFIC[kind]]) if kind in _SPECIFIC else []
+    return list(_FACTORS[kind]) + list(_MASS_FACTORS.get(kind, {})) + molar
 
 
 def to_si(value, unit, kind):
@@ -247,6 +259,8 @@ def to_si(value, unit, kind):
     table = _FACTORS[kind]
     if u in _MASS_FACTORS.get(kind, {}):
         return value * _per_kg_to_molar(kind, u)
+    if _is_molar(kind, u):
+        return value * _molar_to_per_kg(kind, u)
     if u not in table:
         raise ValueError(f"Unknown unit '{unit}'. Options: {', '.join(label(o) for o in units_of(kind))}")
     return value * table[u]
@@ -266,6 +280,8 @@ def from_si(value, unit, kind):
         raise ValueError(f"Unknown temperature unit '{unit}'")
     if u in _MASS_FACTORS.get(kind, {}):
         return value / _per_kg_to_molar(kind, u)
+    if _is_molar(kind, u):
+        return value / _molar_to_per_kg(kind, u)
     return value / _FACTORS[kind][u]
 
 

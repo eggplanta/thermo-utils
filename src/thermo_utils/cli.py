@@ -806,6 +806,9 @@ def _apply_units(t_unit, p_unit, e_unit, v_unit):
                        ("molar_volume", v_unit)):
         if unit:
             display.adopt(kind, unit, force=True)
+    for kind, unit in (("specific_energy", e_unit), ("specific_volume", v_unit)):
+        if unit:
+            display.adopt(kind, unit, force=True)
 
 
 @app.callback(invoke_without_command=True)

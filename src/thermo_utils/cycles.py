@@ -16,7 +16,7 @@ from thermo_utils.steplog import K, q
 from thermo_utils.units import (
     DIMENSIONLESS as D, ENERGY, MASS, MASS_FLOW, POWER, PRESSURE as P, SPECIFIC_ENERGY as E,
     SPECIFIC_ENTROPY as S, SPECIFIC_VOLUME as V, TEMPERATURE as T, TYPED, VOLUME, R, display, fmt, from_si,
-    label as unit_label,
+    label as unit_label, set_molar_mass,
 )
 
 T0, P_REF = 298.15, 101325.0
@@ -824,6 +824,7 @@ HIDDEN_IF_IDEAL = {"T2s": ("eta_c", "eta"), "T4s": ("eta_e", "eta_t"), "x4s": ("
 
 def run(model_id, sub, k=None, cp=None, steps=False, **given):
     model = (STEPS if steps else MODELS)[model_id]
+    set_molar_mass(sub.MW)
     if model.fluid == "gas":
         fluid = Gas(sub, k, cp)
     else:
