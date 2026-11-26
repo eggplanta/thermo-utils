@@ -953,9 +953,16 @@ def _row(v, out, given):
     return (v.label, _fmt(out[v.key], v.kind, TYPED.get(v.key)), v.key in given)
 
 
+_SAT_TOL = 1e-4
+
+
 def _quality_text(x):
     if x is None or math.isnan(x):
         return "supercritical"
+    if abs(x) <= _SAT_TOL:
+        return "sat. liquid"
+    if abs(x - 1) <= _SAT_TOL:
+        return "sat. vapor"
     if x > 1:
         return "superheated"
     if x < 0:
@@ -973,7 +980,7 @@ def _num(value, kind):
 
 def _state_table(model, out, given):
     keys = STATE_KEYS[model.fluid].split()
-    headers = ["State"] + [k if k == "x" else f"{k}\n{_unit(STATE_LABELS[k][1])}" for k in keys]
+    headers = ["State"] + ["x\n(quality)" if k == "x" else f"{k}\n{_unit(STATE_LABELS[k][1])}" for k in keys]
     rows = []
     for i in range(1, model.states + 1):
         cells = [(str(i), False)]
