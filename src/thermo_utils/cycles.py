@@ -13,6 +13,7 @@ from scipy.optimize import least_squares
 from thermo_utils import steplog as log
 from thermo_utils.result import Result
 from thermo_utils.steplog import K, q
+from thermo_utils.units import num
 from thermo_utils.units import (
     DIMENSIONLESS as D, ENERGY, MASS, MASS_FLOW, POWER, PRESSURE as P, SPECIFIC_ENERGY as E,
     SPECIFIC_ENTROPY as S, SPECIFIC_VOLUME as V, TEMPERATURE as T, TYPED, VOLUME, R, display, fmt, from_si,
@@ -170,7 +171,7 @@ def _log_gas_props(g, st, i):
     if not log.on():
         return
     if g.cold:
-        log.line("  v{} = RT{}/P{} = {} · {} / {} = {}", i, i, i, f"{g.R:.6g} J/(kg·K)", K(st["T"]), q(st["P"], P), q(st["v"], V))
+        log.line("  v{} = RT{}/P{} = {} · {} / {} = {}", i, i, i, f"{num(g.R)} J/(kg·K)", K(st["T"]), q(st["P"], P), q(st["v"], V))
         log.line("  u{} = cv·T{} = {}   h{} = cp·T{} = {}", i, i, q(st["u"], E), i, i, q(st["h"], E))
     else:
         log.line("  v{} = RT{}/P{} = {}   h{} = h(T{}) from the ideal-gas table = {}   u{} = h{} − RT{} = {}",
@@ -242,10 +243,10 @@ def _work_closed(g, st, ratio, eta, expand, a="1", b="2"):
     t2 = g.T_u(u2)
     v2 = st["v"] * ratio if expand else st["v"] / ratio
     if log.on():
-        log.line("v{} = v{} {} {} = {}", b, a, "×" if expand else "/", f"{ratio:.6g}", q(v2, V))
+        log.line("v{} = v{} {} {} = {}", b, a, "×" if expand else "/", num(ratio), q(v2, V))
         if g.cold:
             log.line("Isentropic, constant cp: T{}s = T{}(v{}/v{})^(k−1) = {} × {}^{} = {}", b, a, a, b,
-                     K(st["T"]), f"{vr:.6g}", f"{g.k - 1:.6g}", K(t_s))
+                     K(st["T"]), num(vr), num(g.k - 1), K(t_s))
         else:
             log.line("Isentropic, variable cp: φ(T) = s°(T) − R ln T, φ(T{}s) = φ(T{}) + R ln(v{}/v{})", b, a, a, b)
             log.line("  φ(T{}) = {}, R ln(v{}/v{}) = {}  ->  T{}s = {}", a, q(g._phi(st["T"]), S), a, b,
@@ -254,10 +255,10 @@ def _work_closed(g, st, ratio, eta, expand, a="1", b="2"):
         if eta != 1.0:
             if expand:
                 log.line("u{} = u{} − η(u{} − u{}s) = {} − {} × ({} − {}) = {}", b, a, a, b, q(st["u"], E),
-                         f"{eta:.6g}", q(st["u"], E), q(u_s, E), q(u2, E))
+                         num(eta), q(st["u"], E), q(u_s, E), q(u2, E))
             else:
                 log.line("u{} = u{} + (u{}s − u{})/η = {} + ({} − {}) / {} = {}", b, a, b, a, q(st["u"], E),
-                         q(u_s, E), q(st["u"], E), f"{eta:.6g}", q(u2, E))
+                         q(u_s, E), q(st["u"], E), num(eta), q(u2, E))
             log.line("T{} = T(u{}) = {}", b, b, q(t2, T))
         log.line("P{} = RT{}/v{} = {}", b, b, b, q(g.R * t2 / v2, P))
     return _gas_state(g, t2, g.R * t2 / v2, b), t_s
@@ -271,10 +272,10 @@ def _work_flow(g, st, rp, eta, expand, a="1", b="2"):
     h2 = st["h"] - eta * (st["h"] - h_s) if expand else st["h"] + (h_s - st["h"]) / eta
     p2 = st["P"] / rp if expand else st["P"] * rp
     if log.on():
-        log.line("P{} = P{} {} {} = {}", b, a, "/" if expand else "×", f"{rp:.6g}", q(p2, P))
+        log.line("P{} = P{} {} {} = {}", b, a, "/" if expand else "×", num(rp), q(p2, P))
         if g.cold:
             log.line("Isentropic, constant cp: T{}s = T{}(P{}/P{})^((k−1)/k) = {} × {}^{} = {}", b, a, b, a,
-                     K(st["T"]), f"{pr:.6g}", f"{(g.k - 1) / g.k:.6g}", K(t_s))
+                     K(st["T"]), num(pr), num((g.k - 1) / g.k), K(t_s))
         else:
             log.line("Isentropic, variable cp: s°(T{}s) = s°(T{}) + R ln(P{}/P{}) = {} + {} = {}  ->  T{}s = {}",
                      b, a, b, a, q(g.s0(st["T"]), S), q(g.R * math.log(pr), S),
@@ -283,10 +284,10 @@ def _work_flow(g, st, rp, eta, expand, a="1", b="2"):
         if eta != 1.0:
             if expand:
                 log.line("h{} = h{} − η(h{} − h{}s) = {} − {} × ({} − {}) = {}", b, a, a, b, q(st["h"], E),
-                         f"{eta:.6g}", q(st["h"], E), q(h_s, E), q(h2, E))
+                         num(eta), q(st["h"], E), q(h_s, E), q(h2, E))
             else:
                 log.line("h{} = h{} + (h{}s − h{})/η = {} + ({} − {}) / {} = {}", b, a, b, a, q(st["h"], E),
-                         q(h_s, E), q(st["h"], E), f"{eta:.6g}", q(h2, E))
+                         q(h_s, E), q(st["h"], E), num(eta), q(h2, E))
         log.line("T{} = T(h{}) = {}", b, b, q(g.T_h(h2), T))
     return _gas_state(g, g.T_h(h2), p2, b), t_s
 
@@ -295,21 +296,21 @@ def _engine(g, p, diesel):
     _log_basis(g)
     log.step("State 1 (start of compression)")
     s1 = _gas_state(g, p["T1"], p["P1"], 1)
-    log.step("1→2 adiabatic compression, r = v1/v2 = {}", f"{p['r']:.6g}")
+    log.step("1→2 adiabatic compression, r = v1/v2 = {}", num(p['r']))
     s2, t2s = _work_closed(g, s1, p["r"], p["eta_c"], False)
     if diesel:
         log.step("2→3 heat addition at constant P (P3 = P2), up to T3 = {}", q(p["T3"], T))
         s3 = _gas_state(g, p["T3"], s2["P"], 3)
         q_in = s3["h"] - s2["h"]
         log.line("q_in = h3 − h2 = {} − {} = {}", q(s3["h"], E), q(s2["h"], E), q(q_in, E))
-        log.line("rc = v3/v2 = {} / {} = {}", q(s3["v"], V), q(s2["v"], V), f"{s3['v'] / s2['v']:.6g}")
+        log.line("rc = v3/v2 = {} / {} = {}", q(s3["v"], V), q(s2["v"], V), num(s3['v'] / s2['v']))
     else:
         log.step("2→3 heat addition at constant v (v3 = v2), up to T3 = {}", q(p["T3"], T))
         log.line("P3 = RT3/v3 = {}", q(g.R * p["T3"] / s2["v"], P))
         s3 = _gas_state(g, p["T3"], g.R * p["T3"] / s2["v"], 3)
         q_in = s3["u"] - s2["u"]
         log.line("q_in = u3 − u2 = {} − {} = {}", q(s3["u"], E), q(s2["u"], E), q(q_in, E))
-    log.step("3→4 adiabatic expansion back to v4 = v1, ratio v4/v3 = {}", f"{s1['v'] / s3['v']:.6g}")
+    log.step("3→4 adiabatic expansion back to v4 = v1, ratio v4/v3 = {}", num(s1['v'] / s3['v']))
     s4, t4s = _work_closed(g, s3, s1["v"] / s3["v"], p["eta_e"], True, "3", "4")
     q_out = s4["u"] - s1["u"]
     w_c, w_net = s2["u"] - s1["u"], q_in - q_out
@@ -319,16 +320,16 @@ def _engine(g, p, diesel):
         log.line("w_c = u2 − u1 = {} − {} = {}", q(s2["u"], E), q(s1["u"], E), q(w_c, E))
         log.line("w_e = u3 − u4{} = {}", " + P2(v3 − v2)" if diesel else "", q(w_net + w_c, E))
         log.line("w_net = q_in − q_out = {} − {} = {}", q(q_in, E), q(q_out, E), q(w_net, E))
-        log.line("η = w_net/q_in = {} / {} = {}", q(w_net, E), q(q_in, E), f"{w_net / q_in:.6g}")
+        log.line("η = w_net/q_in = {} / {} = {}", q(w_net, E), q(q_in, E), num(w_net / q_in))
         if g.cold and p["eta_c"] == 1 and p["eta_e"] == 1 and not diesel:
-            log.line("Check (cold, ideal Otto): η = 1 − 1/r^(k−1) = {}", f"{1 - p['r'] ** (1 - g.k):.6g}")
+            log.line("Check (cold, ideal Otto): η = 1 − 1/r^(k−1) = {}", num(1 - p['r'] ** (1 - g.k)))
         if g.cold and p["eta_c"] == 1 and p["eta_e"] == 1 and diesel:
             rc = s3["v"] / s2["v"]
             log.line("Check (cold, ideal Diesel): η = 1 − (rc^k − 1)/[k·r^(k−1)·(rc − 1)] = {}",
-                     f"{1 - (rc ** g.k - 1) / (g.k * p['r'] ** (g.k - 1) * (rc - 1)):.6g}")
+                     num(1 - (rc ** g.k - 1) / (g.k * p['r'] ** (g.k - 1) * (rc - 1))))
         log.line("MEP = w_net/(v1 − v2) = {} / {} = {}", q(w_net, E), q(s1["v"] - s2["v"], V),
                  q(w_net / (s1["v"] - s2["v"]), P))
-        log.line("η_Carnot = 1 − T1/T3 = 1 − {}/{} = {}", K(s1["T"]), K(s3["T"]), f"{1 - s1['T'] / s3['T']:.6g}")
+        log.line("η_Carnot = 1 − T1/T3 = 1 − {}/{} = {}", K(s1["T"]), K(s3["T"]), num(1 - s1['T'] / s3['T']))
     out = _flat([s1, s2, s3, s4]) | dict(
         r=p["r"], q_in=q_in, q_out=q_out, w_c=w_c, w_e=w_net + w_c, w_net=w_net, eta=w_net / q_in,
         mep=w_net / (s1["v"] - s2["v"]), T2s=t2s, T4s=t4s, eta_carnot=1 - s1["T"] / s3["T"],
@@ -353,8 +354,8 @@ def _cycle_rate(out, p, dv):
     log.line("W per cycle = m·w_net = {} × {} = {}", q(m, MASS), q(out["w_net"], E), q(m * out["w_net"], ENERGY))
     if rpm is not None:
         out.update(rpm=rpm, Wdot=out["W_cycle"] * rpm / 60 / (p["strokes"] / 2))
-        log.line("Ẇ = W·(rpm/60)/(strokes/2) = {} × {}/60 / {} = {}", q(out["W_cycle"], ENERGY), f"{rpm:.6g}",
-                 f"{p['strokes'] / 2:.6g}", q(out["Wdot"], POWER))
+        log.line("Ẇ = W·(rpm/60)/(strokes/2) = {} × {}/60 / {} = {}", q(out["W_cycle"], ENERGY), num(rpm),
+                 num(p['strokes'] / 2), q(out["Wdot"], POWER))
 
 
 def otto(g, p):
@@ -369,7 +370,7 @@ def brayton(g, p):
     _log_basis(g)
     log.step("State 1 (compressor inlet)")
     s1 = _gas_state(g, p["T1"], p["P1"], 1)
-    log.step("1→2 compressor, rp = P2/P1 = {}", f"{p['rp']:.6g}")
+    log.step("1→2 compressor, rp = P2/P1 = {}", num(p['rp']))
     s2, t2s = _work_flow(g, s1, p["rp"], p["eta_c"], False)
     log.step("2→3 combustor at constant P, up to T3 = {}", q(p["T3"], T))
     s3 = _gas_state(g, p["T3"], s2["P"], 3)
@@ -384,11 +385,11 @@ def brayton(g, p):
         log.line("q_in = h3 − h2 = {} − {} = {}", q(s3["h"], E), q(s2["h"], E), q(q_in, E))
         log.line("q_out = h4 − h1 = {} − {} = {}", q(s4["h"], E), q(s1["h"], E), q(q_out, E))
         log.line("w_net = w_t − w_c = {}   (= q_in − q_out = {})", q(w_t - w_c, E), q(q_in - q_out, E))
-        log.line("η = w_net/q_in = {}   bwr = w_c/w_t = {}", f"{(w_t - w_c) / q_in:.6g}", f"{w_c / w_t:.6g}")
+        log.line("η = w_net/q_in = {}   bwr = w_c/w_t = {}", num((w_t - w_c) / q_in), num(w_c / w_t))
         if g.cold and p["eta_c"] == 1 and p["eta_t"] == 1:
             log.line("Check (cold, ideal Brayton): η = 1 − 1/rp^((k−1)/k) = {}",
-                     f"{1 - p['rp'] ** ((1 - g.k) / g.k):.6g}")
-        log.line("η_Carnot = 1 − T1/T3 = {}", f"{1 - s1['T'] / s3['T']:.6g}")
+                     num(1 - p['rp'] ** ((1 - g.k) / g.k)))
+        log.line("η_Carnot = 1 − T1/T3 = {}", num(1 - s1['T'] / s3['T']))
     out = _flat([s1, s2, s3, s4]) | dict(
         rp=p["rp"], w_c=w_c, w_t=w_t, w_net=w_t - w_c, q_in=q_in, q_out=q_out, eta=(w_t - w_c) / q_in,
         bwr=w_c / w_t, T2s=t2s, T4s=t4s, eta_carnot=1 - s1["T"] / s3["T"], eta_c=p["eta_c"], eta_t=p["eta_t"],
@@ -417,7 +418,7 @@ def rankine(f, p):
     log.line("Check, incompressible liquid: h2s − h1 ≈ v1(P2 − P1) = {}", q(s1["v"] * (p["P3"] - p["P1"]), E))
     h2 = s1["h"] + (h2s - s1["h"]) / p["eta_p"]
     log.line("h2 = h1 + (h2s − h1)/η_p = {} + ({} − {}) / {} = {}", q(s1["h"], E), q(h2s, E), q(s1["h"], E),
-             f"{p['eta_p']:.6g}", q(h2, E))
+             num(p['eta_p']), q(h2, E))
     s2 = f.state_ph(p["P3"], h2)
     _log_state(2, s2, "from P2, h2")
     log.step("2→3 boiler at constant P to state 3")
@@ -430,10 +431,10 @@ def rankine(f, p):
     if 0 <= x4s <= 1:
         sf, sg = f.sat(p["P1"], 0), f.sat(p["P1"], 1)
         log.line("  x4s = (s3 − sf)/(sg − sf) = ({} − {})/({} − {}) = {}", q(s3["s"], S), q(sf["s"], S), q(sg["s"], S),
-                 q(sf["s"], S), f"{(s3['s'] - sf['s']) / (sg['s'] - sf['s']):.6g}")
-        log.line("  h4s = hf + x4s·hfg = {} + {} × {} = {}", q(sf["h"], E), f"{x4s:.6g}", q(sg["h"] - sf["h"], E), q(h4s, E))
+                 q(sf["s"], S), num((s3['s'] - sf['s']) / (sg['s'] - sf['s'])))
+        log.line("  h4s = hf + x4s·hfg = {} + {} × {} = {}", q(sf["h"], E), num(x4s), q(sg["h"] - sf["h"], E), q(h4s, E))
     h4 = s3["h"] - p["eta_t"] * (s3["h"] - h4s)
-    log.line("h4 = h3 − η_t(h3 − h4s) = {} − {} × ({} − {}) = {}", q(s3["h"], E), f"{p['eta_t']:.6g}", q(s3["h"], E),
+    log.line("h4 = h3 − η_t(h3 − h4s) = {} − {} × ({} − {}) = {}", q(s3["h"], E), num(p['eta_t']), q(s3["h"], E),
              q(h4s, E), q(h4, E))
     s4 = f.state_ph(p["P1"], h4)
     _log_state(4, s4, "from P1, h4")
@@ -444,8 +445,8 @@ def rankine(f, p):
         log.line("w_p = h2 − h1 = {}   w_t = h3 − h4 = {}", q(w_p, E), q(w_t, E))
         log.line("q_in = h3 − h2 = {}   q_out = h4 − h1 = {}", q(q_in, E), q(q_out, E))
         log.line("w_net = w_t − w_p = {}   (= q_in − q_out = {})", q(w_t - w_p, E), q(q_in - q_out, E))
-        log.line("η = w_net/q_in = {}   bwr = w_p/w_t = {}", f"{(w_t - w_p) / q_in:.6g}", f"{w_p / w_t:.6g}")
-        log.line("η_Carnot = 1 − T1/T3 = 1 − {}/{} = {}", K(s1["T"]), K(s3["T"]), f"{1 - s1['T'] / s3['T']:.6g}")
+        log.line("η = w_net/q_in = {}   bwr = w_p/w_t = {}", num((w_t - w_p) / q_in), num(w_p / w_t))
+        log.line("η_Carnot = 1 − T1/T3 = 1 − {}/{} = {}", K(s1["T"]), K(s3["T"]), num(1 - s1['T'] / s3['T']))
     out = _flat([s1, s2, s3, s4]) | dict(
         w_p=w_p, w_t=w_t, w_net=w_t - w_p, q_in=q_in, q_out=q_out, eta=(w_t - w_p) / q_in, bwr=w_p / w_t,
         x4s=f.quality(p["P1"], h4s), eta_carnot=1 - s1["T"] / s3["T"], eta_t=p["eta_t"], eta_p=p["eta_p"],
@@ -499,7 +500,7 @@ def step_heat_v(g, p):
     log.line("v2 = v1, P2 = RT2/v2 = {}", q(g.R * p["T2"] / s1["v"], P))
     s2 = _gas_state(g, p["T2"], g.R * p["T2"] / s1["v"], 2)
     log.line("q = u2 − u1 = {} − {} = {}   P2/P1 = {}", q(s2["u"], E), q(s1["u"], E), q(s2["u"] - s1["u"], E),
-             f"{s2['P'] / s1['P']:.6g}")
+             num(s2['P'] / s1['P']))
     log.line("Δs = s2 − s1 = {}", q(_ds(s1, s2), S))
     return _flat([s1, s2]) | dict(q=s2["u"] - s1["u"], w=0.0, ratio=s2["P"] / s1["P"], ds=_ds(s1, s2))
 
@@ -513,7 +514,7 @@ def step_heat_p(g, p):
     log.line("q = h2 − h1 = {} − {} = {}", q(s2["h"], E), q(s1["h"], E), q(s2["h"] - s1["h"], E))
     log.line("w = P(v2 − v1) = {} × ({} − {}) = {}", q(p["P1"], P), q(s2["v"], V), q(s1["v"], V),
              q(p["P1"] * (s2["v"] - s1["v"]), E))
-    log.line("v2/v1 = {}   Δs = {}", f"{s2['v'] / s1['v']:.6g}", q(_ds(s1, s2), S))
+    log.line("v2/v1 = {}   Δs = {}", num(s2['v'] / s1['v']), q(_ds(s1, s2), S))
     return _flat([s1, s2]) | dict(q=s2["h"] - s1["h"], w=p["P1"] * (s2["v"] - s1["v"]),
                                   rc=s2["v"] / s1["v"], ds=_ds(s1, s2))
 
@@ -529,7 +530,7 @@ def step_pump(f, p):
     log.step("1→2 pump to P2 = {}", q(p["P2"], P))
     h2s = f.h_ps(p["P2"], s1["s"])
     log.line("Isentropic: h2s = h(P2, s1) = {}   (≈ h1 + v1ΔP = {})", q(h2s, E), q(h1 + s1["v"] * (p["P2"] - p["P1"]), E))
-    log.line("h2 = h1 + (h2s − h1)/η = {} + ({} − {}) / {} = {}", q(h1, E), q(h2s, E), q(h1, E), f"{p['eta']:.6g}",
+    log.line("h2 = h1 + (h2s − h1)/η = {} + ({} − {}) / {} = {}", q(h1, E), q(h2s, E), q(h1, E), num(p['eta']),
              q(h1 + (h2s - h1) / p["eta"], E))
     s2 = f.state_ph(p["P2"], h1 + (h2s - h1) / p["eta"])
     _log_state(2, s2, "from P2, h2")
@@ -546,7 +547,7 @@ def step_turbine(f, p):
     h2s = f.h_ps(p["P2"], s1["s"])
     log.line("Isentropic: s2s = s1  ->  h2s = h(P2, s1) = {}, x2s = {}", q(h2s, E), _quality_text(f.quality(p["P2"], h2s)))
     h2 = s1["h"] - p["eta"] * (s1["h"] - h2s)
-    log.line("h2 = h1 − η(h1 − h2s) = {} − {} × ({} − {}) = {}", q(s1["h"], E), f"{p['eta']:.6g}", q(s1["h"], E),
+    log.line("h2 = h1 − η(h1 − h2s) = {} − {} × ({} − {}) = {}", q(s1["h"], E), num(p['eta']), q(s1["h"], E),
              q(h2s, E), q(h2, E))
     s2 = f.state_ph(p["P2"], h2)
     _log_state(2, s2, "from P2, h2")
@@ -886,10 +887,10 @@ def _log_basis(fluid):
         log.line("{} from its reference EOS (CoolProp), per kg; h and s on the steam-table reference", fluid.sub.name)
     elif fluid.cold:
         log.line("Cold air-standard: cp = {}, cv = {}, R = cp − cv = {}, k = cp/cv = {}",
-                 f"{fluid.cp:.6g} J/(kg·K)", f"{fluid.cv:.6g} J/(kg·K)", f"{fluid.R:.6g} J/(kg·K)", f"{fluid.k:.6g}")
+                 f"{num(fluid.cp)} J/(kg·K)", f"{num(fluid.cv)} J/(kg·K)", f"{num(fluid.R)} J/(kg·K)", num(fluid.k))
     else:
         log.line("Ideal gas {} with Cp(T) (variable specific heats), per kg: R = R_u/M = 8.31446/{} = {} J/(kg·K)",
-                 fluid.sub.name, f"{fluid.sub.MW / 1000:.6g}", f"{fluid.R:.6g}")
+                 fluid.sub.name, num(fluid.sub.MW / 1000), num(fluid.R))
         log.line("h(T) and s°(T) tabulated from ∫Cp dT and ∫Cp/T dT (like the air tables)")
 
 
@@ -944,7 +945,7 @@ def _fmt(value, kind, unit=None):
     if value is None or (isinstance(value, float) and math.isnan(value)):
         return "-"
     if kind == D:
-        return f"{value:.6g}"
+        return num(value)
     return fmt(value, kind, unit)
 
 
@@ -959,7 +960,7 @@ def _quality_text(x):
         return "superheated"
     if x < 0:
         return "liquid"
-    return f"{x:.4g}"
+    return num(x)
 
 
 def _unit(kind):
@@ -967,7 +968,7 @@ def _unit(kind):
 
 
 def _num(value, kind):
-    return f"{from_si(value, display.unit_for(kind), kind):.6g}"
+    return num(from_si(value, display.unit_for(kind), kind), si=value)
 
 
 def _state_table(model, out, given):

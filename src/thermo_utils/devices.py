@@ -7,6 +7,7 @@ from thermo_utils import steplog as log
 from thermo_utils.steplog import q
 from thermo_utils.properties import _model_label, _molar_flow, _state_rows, ts_diagram
 from thermo_utils.result import Result, row
+from thermo_utils.units import num
 from thermo_utils.units import MOLAR_ENERGY as E, MOLAR_ENTROPY as S, POWER, PRESSURE as P, TEMPERATURE as T
 
 
@@ -19,11 +20,11 @@ def flow_device(sub, kind, T1, P1, P2, efficiency=1.0, model="auto", flow=None):
         log.line("Throttling: adiabatic, no work, ΔKE ≈ ΔPE ≈ 0  ->  H2 = H1 = {}", q(s1.H, E))
         s2 = pure.state_PH(sub, P2, s1.H, model)
         log.step("Result")
-        log.line("ΔT = T2 − T1 = {} − {} = {} K", q(s2.T, T), q(s1.T, T), f"{s2.T - s1.T:.6g}")
+        log.line("ΔT = T2 − T1 = {} − {} = {} K", q(s2.T, T), q(s1.T, T), num(s2.T - s1.T))
         log.line("ΔS = S2 − S1 = {} − {} = {} (entropy generated, > 0)", q(s2.S, S), q(s1.S, S), q(s2.S - s1.S, S))
         res.section("Inlet", _state_rows(s1, False))
         res.section("Outlet (isenthalpic, H2 = H1)", _state_rows(s2, False))
-        res.section("Result", [row("ΔT", f"{s2.T - s1.T:.6g} K"), row("ΔS (entropy generated)", s2.S - s1.S, S)])
+        res.section("Result", [row("ΔT", f"{num(s2.T - s1.T)} K"), row("ΔS (entropy generated)", s2.S - s1.S, S)])
         path = []
         with log.muted():
             path = _isenthalp(sub, P1, P2, s1, model)
@@ -52,27 +53,27 @@ def _work_device(res, sub, kind, s1, P2, efficiency, model, flow):
     log.line("Ws = H2s − H1 = {} − {} = {}", q(s2s.H, E), q(s1.H, E), q(Ws, E))
     if kind == "turbine":
         W = Ws * efficiency
-        log.line("Turbine: W = η·Ws = {} × {} = {}", f"{efficiency:.6g}", q(Ws, E), q(W, E))
+        log.line("Turbine: W = η·Ws = {} × {} = {}", num(efficiency), q(Ws, E), q(W, E))
     else:
         W = Ws / efficiency
-        log.line("{}: W = Ws/η = {} / {} = {}", kind.capitalize(), q(Ws, E), f"{efficiency:.6g}", q(W, E))
+        log.line("{}: W = Ws/η = {} / {} = {}", kind.capitalize(), q(Ws, E), num(efficiency), q(W, E))
     log.line("Actual outlet: H2 = H1 + W = {} + {} = {} at P2", q(s1.H, E), q(W, E), q(s1.H + W, E))
     s2 = pure.state_PH(sub, P2, s1.H + W, model)
     log.step("Work and entropy")
-    log.line("W per kg = W/M = {} / {} g/mol = {} kJ/kg", q(W, E), f"{sub.MW:.5g}", f"{W / sub.MW:.6g}")
+    log.line("W per kg = W/M = {} / {} g/mol = {} kJ/kg", q(W, E), f"{sub.MW:.5g}", num(W / sub.MW))
     log.line("ΔS = S2 − S1 = {} − {} = {}", q(s2.S, S), q(s1.S, S), q(s2.S - s1.S, S))
     res.section("Inlet", _state_rows(s1, False))
     res.section("Isentropic outlet", _state_rows(s2s, False))
     res.section(f"Actual outlet (η = {efficiency:.4g})", _state_rows(s2, False))
     rows = res.section("Work (shaft work = ΔH, adiabatic)", [
         row("Isentropic work Ws", Ws, E), row("Actual work W", W, E),
-        row("W per kg", f"{W / sub.MW:.6g} kJ/kg"), row("ΔS (entropy generated)", s2.S - s1.S, S),
+        row("W per kg", f"{num(W / sub.MW)} kJ/kg"), row("ΔS (entropy generated)", s2.S - s1.S, S),
     ])
     if flow is not None:
         n = _molar_flow(sub, flow)
-        log.line("Molar flow ṅ = {} mol/s{}", f"{n:.6g}", f" (from ṁ/M = {flow[1]:.6g} kg/s / {sub.MW / 1000:.6g} kg/mol)"
+        log.line("Molar flow ṅ = {} mol/s{}", num(n), f" (from ṁ/M = {num(flow[1])} kg/s / {num(sub.MW / 1000)} kg/mol)"
                  if flow[0] == "mass" else "")
-        log.line("Power = ṅ·W = {} × {} = {}", f"{n:.6g}", q(W, E), q(n * W, POWER))
+        log.line("Power = ṅ·W = {} × {} = {}", num(n), q(W, E), q(n * W, POWER))
         rows.append(row("Power ṅ·W", n * W, POWER))
         rows.append(row("Isentropic power", n * Ws, POWER))
     states, labels = [s1, s2], ["1", "2"]

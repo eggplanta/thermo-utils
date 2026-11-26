@@ -8,6 +8,7 @@ from thermo_utils import pure
 from thermo_utils import steplog as log
 from thermo_utils.result import Result, row
 from thermo_utils.steplog import K, q
+from thermo_utils.units import num
 from thermo_utils.units import (
     DIMENSIONLESS as D, MOLAR_ENERGY as E, MOLAR_ENTROPY as S, MOLAR_VOLUME as V,
     PRESSURE as P, TEMPERATURE as T, TYPED, R,
@@ -47,7 +48,7 @@ def _state_rows(st, extended=True):
 
 def _density_rows(sub, st):
     rho = sub.MW / 1000 / st.V
-    return [row("Molar mass", f"{sub.MW:.5g} g/mol"), row("Density", f"{rho:.6g} kg/m³")]
+    return [row("Molar mass", f"{sub.MW:.5g} g/mol"), row("Density", f"{num(rho)} kg/m³")]
 
 
 # Substance data
@@ -97,7 +98,7 @@ def _explain_info(sub):
     if not log.on():
         return
     log.step("Databank lookup")
-    log.line("Name {} -> CAS {}, formula {}, M = {} g/mol", sub.name, sub.cas, sub.formula, f"{sub.MW:.6g}")
+    log.line("Name {} -> CAS {}, formula {}, M = {} g/mol", sub.name, sub.cas, sub.formula, num(sub.MW))
     log.line("CoolProp reference EOS: {}", sub.coolprop or "none (cubic EOS will be used)")
     log.step("Critical constants")
     log.line("Tc = {}, Pc = {}, Vc = {}, ω = {}", q(sub.Tc, T), q(sub.Pc, P), q(sub.Vc, V), q(sub.omega))
@@ -147,7 +148,7 @@ def pvt(sub, T_=None, P_=None, V_=None, model="auto"):
     res.notes += st.notes
     pure.explain_state(sub, st)
     if log.on():
-        log.line("Density ρ = M/V = {} kg/m³", f"{sub.MW / 1000 / st.V:.6g}")
+        log.line("Density ρ = M/V = {} kg/m³", num(sub.MW / 1000 / st.V))
     compare = _compare(sub, T_, P_, V_)
     log.step("Same calculation with every model")
     for label, text in compare:
@@ -176,7 +177,7 @@ def _explain_pvt_solve(sub, T_, P_, V_, model):
         else:
             log.line("Solve RT/P + B(T) = V for T (Brent's method) -> T = {}, B = {}", q(st.T, T), q(B, V))
     elif model == "coolprop":
-        log.line("ρ = 1/V = {} mol/m³; reference EOS solved for {} at (ρ, {})", f"{1 / V_:.6g}", unknown,
+        log.line("ρ = 1/V = {} mol/m³; reference EOS solved for {} at (ρ, {})", num(1 / V_), unknown,
                  "T" if P_ is None else "P")
         log.line("{} = {}", unknown, q(st.P, P) if P_ is None else q(st.T, T))
     else:
@@ -220,13 +221,13 @@ def _compare(sub, T_, P_, V_):
         try:
             if V_ is None:
                 st = pure.state(sub, T_, P_, m)
-                rows.append(row(m, f"V = {_f(st.V, V)}   Z = {st.Z:.5f}   ({st.phase})"))
+                rows.append(row(m, f"V = {_f(st.V, V)}   Z = {num(st.Z)}   ({st.phase})"))
             elif P_ is None:
                 st = pure.state_TV(sub, T_, V_, m)
-                rows.append(row(m, f"P = {_f(st.P, P)}   Z = {st.Z:.5f}"))
+                rows.append(row(m, f"P = {_f(st.P, P)}   Z = {num(st.Z)}"))
             else:
                 st = pure.state_PV(sub, P_, V_, m)
-                rows.append(row(m, f"T = {_f(st.T, T)}   Z = {st.Z:.5f}"))
+                rows.append(row(m, f"T = {_f(st.T, T)}   Z = {num(st.Z)}"))
         except Exception as exc:
             rows.append(row(m, f"failed: {exc}"))
     return rows
@@ -279,7 +280,7 @@ def state_properties(sub, T_=None, P_=None, x=None, model="auto"):
     else:
         pure.explain_state(sub, st)
     if log.on():
-        log.line("Density ρ = M/V = {} kg/m³", f"{sub.MW / 1000 / st.V:.6g}")
+        log.line("Density ρ = M/V = {} kg/m³", num(sub.MW / 1000 / st.V))
     res.notes += st.notes
     res.notes.append("Reference for H, S, U, G, A: ideal gas at 298.15 K and 1 bar (H = S = 0).")
     if pure.resolve_model(sub, model) == "coolprop" and st.HR is not None:
@@ -313,8 +314,8 @@ def _cp_derivatives(sub, st):
         ("Thermal conductivity", AS.conductivity, "W/(m·K)"),
     ]:
         try:
-            rows.append(row(label, f"{fn():.6g} {unit}"))
-            log.line("{} = {} {}", label, f"{fn():.6g}", unit)
+            rows.append(row(label, f"{num(fn())} {unit}"))
+            log.line("{} = {} {}", label, num(fn()), unit)
         except Exception:
             pass
     return rows

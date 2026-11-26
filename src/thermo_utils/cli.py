@@ -15,6 +15,7 @@ from rich.text import Text
 
 from thermo_utils import __version__, calcs, cycles, drawing, equations, plots, properties, steplog, substances
 from thermo_utils.result import harmonize
+from thermo_utils.units import num
 from thermo_utils.units import DEFAULT_INPUT_UNITS, display, units_of
 from thermo_utils.units import _norm as _norm_unit, label as unit_label
 
@@ -100,6 +101,33 @@ def show_pair(pair):
         console.print(b2)
 
 
+_LEAD = ("State", "Process", "")
+
+
+def _grid(headers, rows, cols):
+    table = Table(box=None, padding=(0, 1), header_style="bold")
+    for i in cols:
+        table.add_column(headers[i], justify="left" if headers[i] in _LEAD else "right")
+    for cells in rows:
+        table.add_row(*(Text(cells[i][0], style=ACCENT if cells[i][1] else None) for i in cols))
+    return table
+
+
+def show_table(heading, headers, rows):
+    """Split the columns over stacked tables when they do not fit."""
+    lead = [i for i, h in enumerate(headers) if h in _LEAD]
+    rest = [i for i in range(len(headers)) if i not in lead]
+    for parts in range(1, len(rest) + 1):
+        size = -(-len(rest) // parts)
+        chunks = [rest[i:i + size] for i in range(0, len(rest), size)]
+        grids = [_grid(headers, rows, lead + c) for c in chunks]
+        if all(console.measure(g).minimum + 4 <= console.width for g in grids):
+            break
+    for k, g in enumerate(grids, 1):
+        title = f"[b]{heading}[/b]" + (f" [dim]({k}/{len(grids)})[/dim]" if len(grids) > 1 else "")
+        console.print(Panel(g, title=title, title_align="left", border_style=ACCENT, expand=False))
+
+
 def show_result(res, calc=None):
     res.notes += list(substances.NOTICES.values())
     substances.NOTICES.clear()
@@ -109,12 +137,7 @@ def show_result(res, calc=None):
     if res.pair:
         show_pair(res.pair)
     for heading, headers, rows in res.tables:
-        table = Table(box=None, padding=(0, 1), header_style="bold")
-        for h in headers:
-            table.add_column(h, justify="left" if h in ("State", "Process", "") else "right")
-        for cells in rows:
-            table.add_row(*(Text(t, style=ACCENT if given else None) for t, given in cells))
-        console.print(Panel(table, title=f"[b]{heading}[/b]", title_align="left", border_style=ACCENT, expand=False))
+        show_table(heading, headers, rows)
     for heading, rows in res.sections:
         table = Table(show_header=False, box=None, padding=(0, 2))
         table.add_column(style="bold")
@@ -651,7 +674,7 @@ def _log_inputs(calc, kwargs):
         elif f.type == calcs.QUANTITY:
             steplog.line(f"{name} = {{}}", steplog.q(v, f.qkind))
         elif f.type == calcs.FLOW:
-            steplog.line(f"{name} = {{}} {{}}", f"{v[1]:.6g}", "kg/s" if v[0] == "mass" else "mol/s")
+            steplog.line(f"{name} = {{}} {{}}", num(v[1]), "kg/s" if v[0] == "mass" else "mol/s")
         elif f.type == calcs.CHOICE and f.choices and v in f.choices:
             steplog.line(f"{name} = {{}} ({{}})", v, f.choices[v])
         elif isinstance(v, (list, tuple)):
@@ -755,7 +778,19 @@ def units_menu():
     ], "cal" if "cal" in display.molar_energy else "J")
     display.adopt("molar_energy", f"{family}/mol", force=True)
     display.adopt("molar_entropy", f"{family}/(mol·K)", force=True)
+    text = ask_text(f"  minimum decimal places [dim](2-8) [{display.min_decimals}][/dim]")
+    try:
+        _set_decimals(text or display.min_decimals)
+    except ValueError as exc:
+        console.print(f"  [red]{exc}, keeping {display.min_decimals}[/red]")
     display.save()
+
+
+def _set_decimals(n):
+    n = int(n) if str(n).strip().isdigit() else -1
+    if not 2 <= n <= 8:
+        raise ValueError("Minimum decimal places must be a whole number from 2 to 8")
+    display.min_decimals = n
 
 
 def menu():
@@ -774,7 +809,7 @@ def menu():
                 table.add_row(f"[b]{len(items)}[/b]", c.title)
         table.add_row("", "")
         table.add_row("[b]u[/b]", f"Display units [dim](T {display.temperature}, P {display.pressure}, "
-                                   f"E {display.molar_energy}, {'typed units win' if display.follow_typed else 'fixed'})[/dim]")
+                                   f"E {display.molar_energy}, ≥{display.min_decimals} decimals, {'typed units win' if display.follow_typed else 'fixed'})[/dim]")
         table.add_row("[b]Esc[/b]", "Exit")
         console.print(table)
         choice = ask_text("\n=>").lower()
@@ -866,10 +901,17 @@ def run(
     p_unit: str = typer.Option(None, "--P-unit", help="Display unit for pressure"),
     e_unit: str = typer.Option(None, "--E-unit", help="Display unit for molar energy"),
     v_unit: str = typer.Option(None, "--V-unit", help="Display unit for molar volume"),
+    decimals: int = typer.Option(None, "--decimals", help="Minimum decimal places shown (2-8, default 4)"),
     details: bool = typer.Option(False, "--details", help="Print the step-by-step calculation log"),
 ):
     """Run one calculation without the menu."""
     _apply_units(t_unit, p_unit, e_unit, v_unit)
+    if decimals is not None:
+        try:
+            _set_decimals(decimals)
+        except ValueError as exc:
+            console.print(f"[red]Error: {exc}[/red]")
+            raise typer.Exit(1)
     given = {}
     if calc_id in DEVICES:
         calc_id, given["kind"] = "device", calc_id
@@ -920,7 +962,7 @@ def run(
 def main():
     argv, i = sys.argv[1:], 0
     while i < len(argv) and argv[i].startswith("-"):
-        i += 2 if argv[i].endswith("-unit") else 1
+        i += 2 if argv[i].endswith("-unit") or argv[i] == "--decimals" else 1
     if i < len(argv) and argv[i] not in ("list", "run"):
         sys.argv[1:] = ["run", argv[i]] + argv[:i] + argv[i + 1:]
     app()

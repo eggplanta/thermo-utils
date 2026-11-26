@@ -10,7 +10,7 @@ from thermo_utils.pure import MODELS
 from thermo_utils.units import (
     CONCENTRATION, DIMENSIONLESS, LENGTH, MASS_FLOW, MOLAR_ENERGY, MOLAR_ENTROPY, MOLAR_FLOW, PRESSURE,
     SPECIFIC_ENTROPY, TEMPERATURE, MOLAR_VOLUME,
-    _NUMBER, display, parse_quantity, set_molar_mass,
+    _NUMBER, display, mark_given, parse_quantity, set_molar_mass,
 )
 
 SUBSTANCE = "substance"
@@ -47,6 +47,13 @@ class Calc:
 
 
 def parse_value(f, text):
+    value = _parse_value(f, text)
+    for v in value if isinstance(value, list) else [value[1] if isinstance(value, tuple) else value]:
+        mark_given(v)
+    return value
+
+
+def _parse_value(f, text):
     text = text.strip()
     if text == "":
         if f.optional or f.default is not None:

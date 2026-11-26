@@ -10,11 +10,12 @@ from thermo_utils import steplog as log
 from thermo_utils import substances
 from thermo_utils.activity import GEModel
 from thermo_utils.steplog import q
+from thermo_utils.units import num
 from thermo_utils.units import MOLAR_VOLUME as V_, PRESSURE as P_, TEMPERATURE as T_, R
 
 
 def _c(v):
-    return ", ".join(f"{x:.6g}" for x in v)
+    return ", ".join(num(x) for x in v)
 
 
 def log_virial_B(subs, T):
@@ -148,7 +149,7 @@ class GammaPhi:
             log.line("P = Σ xi γi Psat_i/Φi,  yi = xi γi Psat_i/(Φi P); start with Φ = 1, update Φ with the new y and P")
             log.table(["it", "P", "Φ used", "y"], rows)
             terms = [x * gi * p / f for x, gi, p, f in zip(xs, g, ps, Phi)]
-            log.line("Final: P = {} = {}", " + ".join(f"{x:.4g}·{gi:.5g}·{p:.6g}/{f:.6g}"
+            log.line("Final: P = {} = {}", " + ".join(f"{num(x)}·{num(gi)}·{num(p)}/{num(f)}"
                                                      for x, gi, p, f in zip(xs, g, ps, Phi)) + " Pa", q(sum(terms), P_))
             log.line("y = {}   K = y/x = {}", _c(ys), _c([y / x if x else float("nan") for x, y in zip(xs, ys)]))
         return VLEResult(T, P, list(xs), ys, g, Phi, ps)
@@ -199,7 +200,7 @@ class GammaPhi:
             T = brentq(f, lo, hi, xtol=1e-10)
         if log.on():
             log.step("{} T at P = {}", name, q(P, P_))
-            log.line("Tsat of each pure species at P: {}", ", ".join(f"{s.name} {s.Tsat(P):.6g} K" for s in self.subs))
+            log.line("Tsat of each pure species at P: {}", ", ".join(f"{s.name} {num(s.Tsat(P))} K" for s in self.subs))
             log.line("Find T where {} P(T) = P: Brent's method between {} and {}", name.lower(), q(lo, T_), q(hi, T_))
             log.table(["it", "T", f"{name.lower()} P(T)"], tries)
             log.line("T = {}; full calculation at this T:", q(T, T_))
@@ -233,7 +234,7 @@ class GammaPhi:
             V = brentq(rr, 1e-12, 1 - 1e-12)
             new_x = [z / (1 + V * (k - 1)) for z, k in zip(zs, K)]
             new_y = [k * x for k, x in zip(K, new_x)]
-            rows.append([it + 1, _c(K), f"{V:.6g}", _c(new_x), _c(new_y)])
+            rows.append([it + 1, _c(K), num(V), _c(new_x), _c(new_y)])
             if max(abs(a - b) for a, b in zip(new_x + new_y, xs + ys)) < 1e-12:
                 xs, ys = new_x, new_y
                 break
@@ -241,7 +242,7 @@ class GammaPhi:
         if log.on():
             log.table(["it", "K", "V/F", "x", "y"], rows)
             self._log_model(T, xs)
-            log.line("Result: V/F = {}, x = {}, y = {}", f"{V:.6g}", _c(xs), _c(ys))
+            log.line("Result: V/F = {}, x = {}, y = {}", num(V), _c(xs), _c(ys))
             log.line("Check, mass balance: zi = (1 − V)xi + V·yi -> {}", _c([(1 - V) * x + V * y for x, y in zip(xs, ys)]))
         return VLEResult(T, P, xs, ys, g, Phi, ps, V)
 
@@ -276,15 +277,15 @@ class PhiPhi:
             log.table(["i", "j", "kij (ChemSep)"], [[self.subs[i].name, self.subs[j].name, self.kij[i][j]]
                                                     for i in range(n) for j in range(i + 1, n)])
             log.line("Equilibrium: xi φ̂i_liq = yi φ̂i_vap, solved by thermo's FlashVL (successive substitution + Newton)")
-            log.line("Result: T = {}, P = {}, V/F = {}", q(r.T, T_), q(r.P, P_), f"{r.VF:.6g}")
+            log.line("Result: T = {}, P = {}, V/F = {}", q(r.T, T_), q(r.P, P_), num(r.VF))
             if liq:
                 log.line("x = {}", _c(liq))
             if gas:
                 log.line("y = {}", _c(gas))
             if r.liquid0 is not None:
-                log.line("φ̂ liquid = {}   Z liquid = {}", _c(r.liquid0.phis()), f"{r.liquid0.Z():.6g}")
+                log.line("φ̂ liquid = {}   Z liquid = {}", _c(r.liquid0.phis()), num(r.liquid0.Z()))
             if r.gas is not None:
-                log.line("φ̂ vapor = {}   Z vapor = {}", _c(phis), f"{r.gas.Z():.6g}")
+                log.line("φ̂ vapor = {}   Z vapor = {}", _c(phis), num(r.gas.Z()))
             if liq and gas:
                 log.line("K = y/x = {}", _c([y / x for x, y in zip(liq, gas)]))
         return VLEResult(r.T, r.P, list(liq) if liq else None, list(gas) if gas else None, [], phis, [], r.VF)

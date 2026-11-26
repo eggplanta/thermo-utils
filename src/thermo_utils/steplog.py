@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from functools import wraps
 
 from thermo_utils import units
+from thermo_utils.units import num
 from thermo_utils.units import DIMENSIONLESS, fmt
 
 _LOG = [None]
@@ -88,7 +89,7 @@ def table(headers, rows):
 
 def _text(v):
     if isinstance(v, float):
-        return f"{v:.6g}"
+        return num(v)
     return str(v)
 
 
@@ -123,4 +124,4 @@ def render(entries):
 
 def K(t):
     """Absolute temperature for formulas, whatever the display unit."""
-    return f"{t:.6g} K"
+    return f"{num(t)} K"

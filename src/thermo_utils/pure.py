@@ -11,6 +11,7 @@ from thermo.eos import PR, RK, SRK, VDW, PRTranslatedConsistent, PRTranslatedTwu
 from thermo_utils import steplog as log
 from thermo_utils.steplog import K, q
 from thermo_utils.substances import CP, CoolProp, require
+from thermo_utils.units import num
 from thermo_utils.units import MOLAR_ENERGY as E, MOLAR_ENTROPY as S_, MOLAR_VOLUME as V_, PRESSURE as P_
 from thermo_utils.units import TEMPERATURE as T_, R
 
@@ -272,9 +273,9 @@ def _coolprop_state(sub, T, P):
         AS = _single(sub, CoolProp.PT_INPUTS, P, T)
     except ValueError as exc:
         if "pseudo-pure" in str(exc):
-            raise ValueError(f"{sub.name} at T={T:.6g} K, P={P:.6g} Pa lies between its bubble and dew points "
+            raise ValueError(f"{sub.name} at T={num(T)} K, P={num(P)} Pa lies between its bubble and dew points "
                              "(two-phase). Give a vapor fraction instead.") from None
-        raise ValueError(f"CoolProp could not solve {sub.name} at T={T:.6g} K, P={P:.6g} Pa: {exc}") from None
+        raise ValueError(f"CoolProp could not solve {sub.name} at T={num(T)} K, P={num(P)} Pa: {exc}") from None
     return _cp_state_from(sub, AS)
 
 
@@ -566,7 +567,7 @@ def _explain_cubic(sub, st):
     log.line("Cubic: {}", _POLY.get(m, ""))
     roots = sorted(v.real for v in eos.raw_volumes if abs(complex(v).imag) < 1e-12 * abs(complex(v)) + 1e-30
                    and complex(v).real > 0)
-    log.line("Real roots: Z = {}", ", ".join(f"{P * v / (R * T):.6g}" for v in roots) or "-")
+    log.line("Real roots: Z = {}", ", ".join(num(P * v / (R * T)) for v in roots) or "-")
     for r in _cubic_roots(sub, m, T, P):
         log.line("  {} root: Z = {}, V = {}, φ = {}", r.phase, q(r.Z), q(r.V, V_), q(r.phi))
     if hasattr(eos, "V_l") and hasattr(eos, "V_g"):
@@ -581,7 +582,7 @@ def _explain_coolprop(sub, st):
     if st.phase.startswith("two-phase"):
         log.line("Inside the dome: {}", st.phase)
     else:
-        log.line("Solve P(T, ρ) = P for the density: ρ = {} mol/m³", f"{rho:.6g}")
+        log.line("Solve P(T, ρ) = P for the density: ρ = {} mol/m³", num(rho))
     log.line("V = 1/ρ = {}", q(st.V, V_))
     log.line("H = h(T, P) − h_ig(298.15 K, 1 bar) = {}", q(st.H, E))
     log.line("S = s(T, P) − s_ig(298.15 K, 1 bar) = {}", q(st.S, S_))

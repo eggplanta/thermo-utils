@@ -1,3 +1,4 @@
+import math
 import re
 from dataclasses import dataclass
 
@@ -146,6 +147,7 @@ class DisplayUnits:
     volume: str = "L"
     mass: str = "kg"
     energy: str = "kJ"
+    min_decimals: int = 4
     follow_typed: bool = True
 
     def unit_for(self, kind):
@@ -177,6 +179,8 @@ class DisplayUnits:
             setattr(self, k, v)
         _ADOPTED.clear()
         TYPED.clear()
+        _GIVEN.clear()
+        _EXACT.clear()
         _PREFIX[0] = None
 
 
@@ -197,6 +201,8 @@ for _e, _s in (("j", "j/(mol·k)"), ("cal", "cal/(mol·k)")):
 
 _ADOPTED = set()
 TYPED = {}
+_GIVEN = set()
+_EXACT = {}
 _BASE = {}
 display = DisplayUnits()
 display.save()
@@ -302,11 +308,39 @@ _SNAP = {TEMPERATURE, PRESSURE, MOLAR_VOLUME, MOLAR_ENERGY, MOLAR_ENTROPY, SPECI
          SPECIFIC_ENTROPY, SPECIFIC_VOLUME, POWER, ENERGY}
 
 
+# Minimum decimal places on top of 6 significant figures
+
+_MAX_SIG = 10
+_PLAIN = re.compile(r"-?\d+(\.\d+)?")
+
+
+def mark_given(value):
+    """Typed inputs keep the form the user typed."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        _GIVEN.add(float(value))
+
+
+def _is_given(value):
+    return any(math.isclose(value, g, rel_tol=1e-7, abs_tol=0.0) for g in _GIVEN)
+
+
+def num(value, digits=6, si=None):
+    text = f"{value:.{digits}g}"
+    if digits != 6 or not _PLAIN.fullmatch(text) or _is_given(value if si is None else si):
+        return text
+    places = min(display.min_decimals, _MAX_SIG - len(f"{abs(value):.0f}"))
+    if len(text.partition(".")[2]) < places:
+        text = f"{value:.{places}f}"
+    if _EXACT.setdefault(text, value) != value:
+        _EXACT[text] = None
+    return text
+
+
 def fmt(value, kind=DIMENSIONLESS, unit=None, digits=6):
     if value is None:
         return "-"
     if kind == DIMENSIONLESS:
-        return f"{value:.{digits}g}"
+        return num(value, digits)
     unit = unit or display.unit_for(kind)
     try:
         shown = from_si(value, unit, kind)
@@ -316,7 +350,7 @@ def fmt(value, kind=DIMENSIONLESS, unit=None, digits=6):
     if kind in _SNAP and abs(shown) < 1e-9:
         shown = 0.0
     label = _LABELS.get(_norm(unit), unit)
-    text = f"{shown:.{digits}g} {label}"
+    text = f"{num(shown, digits, value)} {label}"
     return text if _PREFIX[0] is None else apply_prefix(text, _PREFIX[0])
 
 
@@ -347,11 +381,11 @@ def choose_prefix(texts):
 
 def apply_prefix(text, kilo):
     def sub(m):
-        value, unit = float(m.group(1)), m.group(2)
+        value, unit = _EXACT.get(m.group(1)) or float(m.group(1)), m.group(2)
         if kilo and unit in _KILO:
-            return f"{value / 1000:.6g} {_KILO[unit]}"
+            return f"{num(value / 1000)} {_KILO[unit]}"
         if not kilo and unit in _UNKILO:
-            return f"{value * 1000:.6g} {_UNKILO[unit]}"
+            return f"{num(value * 1000)} {_UNKILO[unit]}"
         return m.group(0)
     return _ENERGY_RE.sub(sub, text)
 

@@ -6,6 +6,7 @@ from thermo_utils import steplog as log
 from thermo_utils.properties import _f, riedel, watson
 from thermo_utils.result import Result, row
 from thermo_utils.steplog import K, q
+from thermo_utils.units import num
 from thermo_utils.units import MOLAR_ENERGY as E, MOLAR_ENTROPY as S, TEMPERATURE as T, R
 
 
@@ -33,7 +34,7 @@ def sensible_heat(sub, T1, T2, phase="gas"):
         log.line("ΔS = ∫Cp/T dT = {}   (Simpson: {})", q(dS, S), q(_simpson(lambda t: cp(t) / t, T1, T2), S))
         if T2 != T1:
             log.step("Mean heat capacities")
-            log.line("<Cp>H = ΔH/(T2 − T1) = {} / {} K = {}", q(dH, E), f"{T2 - T1:.6g}", q(dH / (T2 - T1), S))
+            log.line("<Cp>H = ΔH/(T2 − T1) = {} / {} K = {}", q(dH, E), num(T2 - T1), q(dH / (T2 - T1), S))
             log.line("<Cp>S = ΔS/ln(T2/T1) = {} / {} = {}", q(dS, S), q(math.log(T2 / T1)), q(dS / math.log(T2 / T1), S))
     res.section(f"{_f(T1, T)} -> {_f(T2, T)}", [
         row("Q = ΔH = ∫Cp dT", dH, E), row("ΔS = ∫Cp/T dT (constant P)", dS, S),
@@ -108,13 +109,13 @@ def adiabatic_flame(fuel, excess_air=0.0, T_in=298.15):
     res = Result(f"Adiabatic flame temperature of {fuel.name}")
     if log.on():
         log.step("Combustion stoichiometry: C{}H{}O{}N{} + a O2 -> b CO2 + c H2O + N2", *(f"{v:g}" for v in (C, H, O, N)))
-        log.line("O2 theoretical = C + H/4 − O/2 = {} + {}/4 − {}/2 = {} mol/mol fuel", f"{C:g}", f"{H:g}", f"{O:g}", f"{o2:.6g}")
-        log.line("O2 fed = O2 theoretical × (1 + excess) = {} × {} = {}", f"{o2:.6g}", f"{1 + excess_air:.6g}", f"{o2_fed:.6g}")
-        log.line("N2 with the air = 79/21 × O2 fed = {}; N2 in products = that + N/2 = {}", f"{79 / 21 * o2_fed:.6g}", f"{n2:.6g}")
-        log.table(["Products", "mol/mol fuel"], [[s.formula, f"{n:.6g}"] for s, n in prod.items()])
+        log.line("O2 theoretical = C + H/4 − O/2 = {} + {}/4 − {}/2 = {} mol/mol fuel", f"{C:g}", f"{H:g}", f"{O:g}", num(o2))
+        log.line("O2 fed = O2 theoretical × (1 + excess) = {} × {} = {}", num(o2), num(1 + excess_air), num(o2_fed))
+        log.line("N2 with the air = 79/21 × O2 fed = {}; N2 in products = that + N/2 = {}", num(79 / 21 * o2_fed), num(n2))
+        log.table(["Products", "mol/mol fuel"], [[s.formula, num(n)] for s, n in prod.items()])
         log.step("Heat of combustion at 298.15 K (water as vapor)")
         for s_, n in prod.items():
-            log.line("{} × ΔHf°({}) = {} × {} = {}", f"{n:.6g}", s_.formula, f"{n:.6g}", q(s_.Hf, E), q(n * s_.Hf, E))
+            log.line("{} × ΔHf°({}) = {} × {} = {}", num(n), s_.formula, num(n), q(s_.Hf, E), q(n * s_.Hf, E))
         log.line("ΔHf°(fuel {}) = {}", fuel.formula, q(fuel.Hf, E))
         log.line("ΔH°c = Σ n ΔHf°(products) − ΔHf°(fuel) = {}", q(dH0, E))
         log.step("Energy balance (adiabatic): H_reactants(T_in) = H_products(Tf)")
@@ -126,12 +127,12 @@ def adiabatic_flame(fuel, excess_air=0.0, T_in=298.15):
         log.table(["T", "Σ n ∫Cp dT", "f(T)"], table)
         log.line("Tf = {}", q(Tf, T))
         for s_, n in prod.items():
-            log.line("  {} × ∫Cp dT({}) = {}", f"{n:.6g}", s_.formula, q(n * s_.H_ig(298.15, Tf), E))
+            log.line("  {} × ∫Cp dT({}) = {}", num(n), s_.formula, q(n * s_.H_ig(298.15, Tf), E))
         log.line("Check: −ΔH°c + H_in = {} = Σ n ∫Cp dT = {}", q(-dH0 + H_in, E),
                  q(sum(n * s_.H_ig(298.15, Tf) for s_, n in prod.items()), E))
     res.section("Complete combustion in air", [
         row("Excess air", f"{excess_air * 100:.4g} %"), row("Inlet temperature", T_in, T),
         row("ΔH° combustion (water vapor)", dH0, E), row("Adiabatic flame temperature", Tf, T),
-    ] + [row(f"Products: {s.formula}", f"{n:.5g} mol/mol fuel") for s, n in prod.items()])
+    ] + [row(f"Products: {s.formula}", f"{num(n)} mol/mol fuel") for s, n in prod.items()])
     res.notes.append("No dissociation; ideal-gas heat capacities.")
     return res

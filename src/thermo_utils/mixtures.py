@@ -10,6 +10,7 @@ from thermo_utils import activity, vle
 from thermo_utils import steplog as log
 from thermo_utils.result import Result, row
 from thermo_utils.steplog import K, q
+from thermo_utils.units import mark_given, num
 from thermo_utils.units import (
     DIMENSIONLESS as D, MOLAR_ENERGY as E, MOLAR_ENTROPY as S, MOLAR_VOLUME as V, PRESSURE as P, TEMPERATURE as T,
     R, display, fmt, from_si,
@@ -34,7 +35,7 @@ def _names(subs):
 
 
 def _comp_rows(subs, xs, label):
-    return [row(f"{label} {s.name}", f"{x:.6f}") for s, x in zip(subs, xs)]
+    return [row(f"{label} {s.name}", num(x)) for s, x in zip(subs, xs)]
 
 
 def _tu():
@@ -61,7 +62,7 @@ def mixture_fugacity(subs, T_, P_, ys, model="pr"):
             log.line("Z = 1 + BP/RT = 1 + {} · {} / ({} · {}) = {}", q(Bmix, V), q(P_, P), R, K(T_), q(Z))
             log.line("ln φ̂k = (P/RT)[Bkk + ½ΣiΣj yi yj(2δik − δij)], δik = 2Bik − Bii − Bkk")
             for s, ph in zip(subs, phis):
-                log.line("  {}: ln φ̂ = {}  ->  φ̂ = {}", s.name, f"{math.log(ph):.6g}", f"{ph:.6g}")
+                log.line("  {}: ln φ̂ = {}  ->  φ̂ = {}", s.name, num(math.log(ph)), num(ph))
         rows = res.section("Virial mixture (Pitzer)", [
             row("B mixture", Bmix, V), row("Z", Z), row("V", Z * R * T_ / P_, V),
         ])
@@ -82,22 +83,22 @@ def mixture_fugacity(subs, T_, P_, ys, model="pr"):
             log.table(["i", "j", "kij"], [[subs[i].name, subs[j].name, kij[i][j]] for i in range(n) for j in range(i + 1, n)])
             eos_ = st.eos_mix
             log.table(["species", "aα_i", "b_i"], [[s.name, a_, q(b_, V)] for s, a_, b_ in zip(subs, eos_.a_alphas, eos_.bs)])
-            log.line("Mixture: aα = {}, b = {}", f"{eos_.a_alpha:.6g}", q(eos_.b, V))
-            log.line("A = aαP/(RT)² = {}, B = bP/RT = {}", f"{eos_.a_alpha * P_ / (R * T_) ** 2:.6g}", f"{eos_.b * P_ / (R * T_):.6g}")
+            log.line("Mixture: aα = {}, b = {}", num(eos_.a_alpha), q(eos_.b, V))
+            log.line("A = aαP/(RT)² = {}, B = bP/RT = {}", num(eos_.a_alpha * P_ / (R * T_) ** 2), num(eos_.b * P_ / (R * T_)))
             log.line("Roots: vapor-like Z = {}, liquid-like Z = {}; stable root (lower G_R): {}",
-                     f"{g.Z():.6g}", f"{l.Z():.6g}", "vapor-like" if st is g else "liquid-like")
+                     num(g.Z()), num(l.Z()), "vapor-like" if st is g else "liquid-like")
             log.line("V = ZRT/P = {}; H_R = {}, S_R = {}", q(st.V(), V), q(st.H_dep(), E), q(st.S_dep(), S))
             log.line("ln φ̂i = (bi/b)(Z − 1) − ln(Z − B) − (A/(2√2 B))[2Σj yj aαij/aα − bi/b] ln[(Z + (1+√2)B)/(Z + (1−√2)B)] (PR)")
             for s, ph in zip(subs, phis):
-                log.line("  {}: φ̂ = {}", s.name, f"{ph:.6g}")
+                log.line("  {}: φ̂ = {}", s.name, num(ph))
         rows = res.section(f"{model.upper()} with van der Waals mixing rules (ChemSep kij)", [
             row("Root", "vapor-like" if st is g else "liquid-like"), row("Z", st.Z()), row("V", st.V(), V),
             row("H residual", st.H_dep(), E), row("S residual", st.S_dep(), S),
         ])
     log.step("Fugacities f̂i = yi φ̂i P")
     for s, y, ph in zip(subs, ys, phis):
-        rows.append(row(f"φ̂ {s.name}", f"{ph:.6f}   f̂ = {fmt(ph * y * P_, P)}"))
-        log.line("{}: f̂ = {} × {} × {} = {}", s.name, f"{y:.6g}", f"{ph:.6g}", q(P_, P), q(ph * y * P_, P))
+        rows.append(row(f"φ̂ {s.name}", f"{num(ph)}   f̂ = {fmt(ph * y * P_, P)}"))
+        log.line("{}: f̂ = {} × {} × {} = {}", s.name, num(y), num(ph), q(P_, P), q(ph * y * P_, P))
     res.section("Composition", _comp_rows(subs, ys, "y"))
     lewis = []
     for s, y, ph in zip(subs, ys, phis):
@@ -108,7 +109,7 @@ def mixture_fugacity(subs, T_, P_, ys, model="pr"):
             lewis.append(row(f"Lewis-Randall f̂ = y·φ_pure·P ({s.name})", fmt(y * phi_pure * P_, P)))
             if not lewis[1:]:
                 log.step("Lewis-Randall rule (ideal solution): f̂i = yi φi(pure) P")
-            log.line("{}: φ pure = {}  ->  f̂ = {}", s.name, f"{phi_pure:.6g}", q(y * phi_pure * P_, P))
+            log.line("{}: φ pure = {}  ->  f̂ = {}", s.name, num(phi_pure), q(y * phi_pure * P_, P))
         except Exception:
             pass
     if lewis:
@@ -129,12 +130,12 @@ def activity_coefficients(subs, T_, xs, model="unifac", params=None):
         ge.explain(T_, xs)
         log.line("Activities ai = xi γi: {}", vle._c([x * math.exp(l) for x, l in zip(xs, lg)]))
         log.step("Excess properties")
-        log.line("G^E/RT = Σ xi ln γi = {} = {}", " + ".join(f"{x:.4g}·{l:.5g}" for x, l in zip(xs, lg)), f"{GE / (R * T_):.6g}")
+        log.line("G^E/RT = Σ xi ln γi = {} = {}", " + ".join(f"{num(x)}·{num(l)}" for x, l in zip(xs, lg)), num(GE / (R * T_)))
         log.line("G^E = RT·(G^E/RT) = {}", q(GE, E))
         dT = 0.01
         g1, g2 = ge.GE(T_ + dT, xs) / (T_ + dT), ge.GE(T_ - dT, xs) / (T_ - dT)
         log.line("H^E = −T² d(G^E/T)/dT (central difference, ±{} K): G^E/T = {} and {} J/(mol·K)", dT, f"{g1:.8g}", f"{g2:.8g}")
-        log.line("H^E = −({})² × ({} − {})/{} = {}", f"{T_:.6g}", f"{g1:.8g}", f"{g2:.8g}", 2 * dT, q(HE, E))
+        log.line("H^E = −({})² × ({} − {})/{} = {}", num(T_), f"{g1:.8g}", f"{g2:.8g}", 2 * dT, q(HE, E))
         log.line("S^E = (H^E − G^E)/T = {}", q((HE - GE) / T_, S))
         log.step("Mixing properties")
         sx = sum(x * math.log(x) for x in xs if x > 0)
@@ -143,7 +144,7 @@ def activity_coefficients(subs, T_, xs, model="unifac", params=None):
         log.line("ΔH_mix = H^E = {}", q(HE, E))
     res.section("Composition", _comp_rows(subs, xs, "x"))
     res.section("Activity coefficients", [
-        row(f"γ {s.name}", f"{math.exp(l):.6f}   ln γ = {l:.6f}   a = {x * math.exp(l):.6f}")
+        row(f"γ {s.name}", f"{num(math.exp(l))}   ln γ = {num(l)}   a = {num(x * math.exp(l))}")
         for s, x, l in zip(subs, xs, lg)
     ])
     dG_id = R * T_ * sum(x * math.log(x) for x in xs if x > 0)
@@ -189,24 +190,24 @@ def vle_calc(subs, kind, T_=None, P_=None, zs=None, method="gamma-phi", model="u
         log.step("Result")
         log.line("T = {}, P = {}", q(r.T, T), q(r.P, P))
         for s, x, y in zip(subs, r.xs, r.ys):
-            log.line("{}: x = {}, y = {}, K = {}", s.name, f"{x:.6g}", f"{y:.6g}", f"{y / x:.6g}" if x else "-")
+            log.line("{}: x = {}, y = {}, K = {}", s.name, num(x), num(y), num(y / x) if x else "-")
         if len(subs) == 2 and r.xs[0] not in (0, 1) and r.ys[0] / r.xs[0] != r.ys[1] / r.xs[1]:
-            log.line("Relative volatility α12 = K1/K2 = {}", f"{(r.ys[0] / r.xs[0]) / (r.ys[1] / r.xs[1]):.6g}")
+            log.line("Relative volatility α12 = K1/K2 = {}", num((r.ys[0] / r.xs[0]) / (r.ys[1] / r.xs[1])))
     titles = {"bubble-p": "Bubble pressure", "dew-p": "Dew pressure", "bubble-t": "Bubble temperature",
               "dew-t": "Dew temperature", "flash": "Isothermal flash (T, P)"}
     res = Result(f"{titles[kind]} - {vle.METHODS[method].split(':')[0]}")
     rows = res.section("Result", [row("T", r.T, T), row("P", r.P, P)])
     if r.VF is not None:
-        rows.append(row("Vapor fraction V/F", f"{r.VF:.6f}"))
+        rows.append(row("Vapor fraction V/F", num(r.VF)))
     comp = res.section("Phase compositions")
     for i, s in enumerate(subs):
-        x = f"{r.xs[i]:.6f}" if r.xs and r.xs[i] is not None else "-"
-        y = f"{r.ys[i]:.6f}" if r.ys and r.ys[i] is not None else "-"
-        k = f"   K = {r.ys[i] / r.xs[i]:.5g}" if x != "-" and y != "-" and r.xs[i] > 0 else ""
+        x = num(r.xs[i]) if r.xs and r.xs[i] is not None else "-"
+        y = num(r.ys[i]) if r.ys and r.ys[i] is not None else "-"
+        k = f"   K = {num(r.ys[i] / r.xs[i])}" if x != "-" and y != "-" and r.xs[i] > 0 else ""
         comp.append(row(s.name, f"x = {x}   y = {y}{k}"))
     if r.gammas:
         res.section("Model values", [
-            row(s.name, f"γ = {g:.5f}   Φ = {f:.5f}   Psat = {fmt(p, P)}")
+            row(s.name, f"γ = {num(g)}   Φ = {num(f)}   Psat = {fmt(p, P)}")
             for s, g, f, p in zip(subs, r.gammas, r.phis, r.Psats)
         ])
     if method != "phi-phi" and model and method != "raoult":
@@ -244,7 +245,7 @@ def binary_diagram(subs, T_=None, P_=None, method="gamma-phi", model="unifac", p
     rows = res.section(f"Points (x, y of {subs[0].name})")
     kind = P if T_ else T
     for x, y, v in list(zip(xs, ys, vals))[::5]:
-        rows.append(row(f"x = {x:.3f}", f"y = {y:.4f}   {'P' if T_ else 'T'} = {fmt(v, kind)}"))
+        rows.append(row(f"x = {x:.3f}", f"y = {num(y)}   {'P' if T_ else 'T'} = {fmt(v, kind)}"))
     az = _azeotrope(xs, ys, vals)
     if log.on():
         log.step("Example: one point of the curve, x1 = 0.5")
@@ -252,14 +253,14 @@ def binary_diagram(subs, T_=None, P_=None, method="gamma-phi", model="unifac", p
         log.step("{} curve: bubble {} at {} values of x1 from 0 to 1 (same method as above)", "Pxy" if T_ else "Txy",
                  "P" if T_ else "T", len(xs))
         log.table(["x1", "y1", "y1 − x1", "P" if T_ else "T"],
-                  [[f"{x:.3f}", f"{y:.5f}", f"{y - x:+.5f}", q(v, kind)] for x, y, v in zip(xs, ys, vals)])
+                  [[f"{x:.3f}", num(y), num(y - x), q(v, kind)] for x, y, v in zip(xs, ys, vals)])
         log.step("Azeotrope: where y1 − x1 changes sign (linear interpolation)")
         if az:
-            log.line("x1 = y1 = {}, {} = {}", f"{az[0]:.5f}", "P" if T_ else "T", q(az[1], kind))
+            log.line("x1 = y1 = {}, {} = {}", num(az[0]), "P" if T_ else "T", q(az[1], kind))
         else:
             log.line("y1 − x1 never changes sign: no azeotrope")
     if az:
-        res.section("Azeotrope", [row("x = y", f"{az[0]:.4f}"), row("P" if T_ else "T", fmt(az[1], kind))])
+        res.section("Azeotrope", [row("x = y", num(az[0])), row("P" if T_ else "T", fmt(az[1], kind))])
     else:
         res.notes.append("No azeotrope found.")
     res.plot = lambda: _plot_binary(solver, subs, T_, P_)
@@ -340,28 +341,28 @@ def lle(subs, T_, model="unifac", params=None):
         log.line("Solved with fsolve from the guesses (0.01, 0.99), (0.05, 0.9), (0.1, 0.8), (0.001, 0.999)")
         x_ = np.linspace(0.02, 0.98, 9)
         log.line("Stability check, ΔG_mix/RT = Σ xi ln xi + G^E/RT (a split exists where the curve is not convex):")
-        log.table(["x1", "ΔG_mix/RT"], [[f"{a:.3f}", f"{ge.GE(T_, [a, 1 - a]) / (R * T_) + a * math.log(a) + (1 - a) * math.log(1 - a):.6g}"] for a in x_])
+        log.table(["x1", "ΔG_mix/RT"], [[f"{a:.3f}", num(ge.GE(T_, [a, 1 - a]) / (R * T_) + a * math.log(a) + (1 - a) * math.log(1 - a))] for a in x_])
         if sol is None:
             log.line("No solution with x1α ≠ x1β: a single liquid phase")
         else:
             a, b = sol
             for name, x1 in (("α", a), ("β", b)):
-                log.step("Phase {}: x1 = {}", name, f"{x1:.6g}")
+                log.step("Phase {}: x1 = {}", name, num(x1))
                 ge.explain(T_, [x1, 1 - x1])
             ga, gb = ge.gammas(T_, [a, 1 - a]), ge.gammas(T_, [b, 1 - b])
             log.step("Check: activities equal in both phases")
-            log.line("{}: {} × {} = {}   vs   {} × {} = {}", subs[0].name, f"{a:.6g}", f"{ga[0]:.6g}", f"{a * ga[0]:.6g}",
-                     f"{b:.6g}", f"{gb[0]:.6g}", f"{b * gb[0]:.6g}")
-            log.line("{}: {} × {} = {}   vs   {} × {} = {}", subs[1].name, f"{1 - a:.6g}", f"{ga[1]:.6g}",
-                     f"{(1 - a) * ga[1]:.6g}", f"{1 - b:.6g}", f"{gb[1]:.6g}", f"{(1 - b) * gb[1]:.6g}")
+            log.line("{}: {} × {} = {}   vs   {} × {} = {}", subs[0].name, num(a), num(ga[0]), num(a * ga[0]),
+                     num(b), num(gb[0]), num(b * gb[0]))
+            log.line("{}: {} × {} = {}   vs   {} × {} = {}", subs[1].name, num(1 - a), num(ga[1]),
+                     num((1 - a) * ga[1]), num(1 - b), num(gb[1]), num((1 - b) * gb[1]))
     if sol is None:
         res.section("Result", [row("Phases", "single liquid phase (miscible) at this T")])
     else:
         a, b = sol
         g = ge.gammas(T_, [a, 1 - a])
         res.section("Coexisting liquid phases", [
-            row(f"Phase α: x {subs[0].name}", f"{a:.6f}"), row(f"Phase β: x {subs[0].name}", f"{b:.6f}"),
-            row(f"γ {subs[0].name} (α)", f"{g[0]:.5f}"), row(f"γ {subs[1].name} (α)", f"{g[1]:.5f}"),
+            row(f"Phase α: x {subs[0].name}", num(a)), row(f"Phase β: x {subs[0].name}", num(b)),
+            row(f"γ {subs[0].name} (α)", num(g[0])), row(f"γ {subs[1].name} (α)", num(g[1])),
         ])
     res.notes += ge.notes
     res.notes.append("Solved from xα·γα = xβ·γβ for both species.")
@@ -457,14 +458,14 @@ def sle(subs, P_=101325.0, model="ideal", params=None):
                   [[f"{x:.2f}", q(liquidus(0, x), T) if x > 0 else "-", q(liquidus(1, 1 - x), T) if x < 1 else "-"]
                    for x in np.linspace(0, 1, 11)])
         log.step("Eutectic: both liquidus curves meet, T1(x) = T2(x) (Brent's method)")
-        log.line("x1 = {}, T = {}", f"{xe:.6g}", q(Te, T))
+        log.line("x1 = {}, T = {}", num(xe), q(Te, T))
         g = ge.gammas(Te, [xe, 1 - xe])
         for i, s in enumerate(subs):
             xi = xe if i == 0 else 1 - xe
-            log.line("Check {}: ln(x γ) = ln({} × {}) = {};  −ΔHfus/R(1/T − 1/Tm) = {}", s.name, f"{xi:.6g}", f"{g[i]:.6g}",
-                     f"{math.log(xi * g[i]):.6g}", f"{-s.Hfus / R * (1 / Te - 1 / s.Tm):.6g}")
+            log.line("Check {}: ln(x γ) = ln({} × {}) = {};  −ΔHfus/R(1/T − 1/Tm) = {}", s.name, num(xi), num(g[i]),
+                     num(math.log(xi * g[i])), num(-s.Hfus / R * (1 / Te - 1 / s.Tm)))
         ge.explain(Te, [xe, 1 - xe])
-    res.section("Eutectic point", [row(f"x {subs[0].name}", f"{xe:.5f}"), row("T eutectic", Te, T)])
+    res.section("Eutectic point", [row(f"x {subs[0].name}", num(xe)), row("T eutectic", Te, T)])
     res.section("Pure-solid data", [
         row(f"{s.name}", f"Tm = {fmt(s.Tm, T)}   ΔHfus = {fmt(s.Hfus, E)}") for s in subs
     ])
@@ -512,19 +513,19 @@ def solubility(solute, T_, solvent=None, model="ideal"):
         log.step("Ideal solubility (γ = 1, pure solid, ΔCp neglected)")
         log.line("Tm = {}, ΔHfus = {}", q(solute.Tm, T), q(solute.Hfus, E))
         log.line("ln x = −(ΔHfus/R)(1/T − 1/Tm) = −({} / {})(1/{} − 1/{}) = {}", q(solute.Hfus, E), R,
-                 f"{T_:.6g} K", f"{solute.Tm:.6g} K", f"{math.log(ideal):.6g}")
-        log.line("x = exp({}) = {}", f"{math.log(ideal):.6g}", f"{ideal:.6g}")
-    rows = res.section("Result", [row("Ideal solubility x", f"{min(ideal, 1):.6g}")])
+                 f"{num(T_)} K", f"{num(solute.Tm)} K", num(math.log(ideal)))
+        log.line("x = exp({}) = {}", num(math.log(ideal)), num(ideal))
+    rows = res.section("Result", [row("Ideal solubility x", num(min(ideal, 1)))])
     if solvent and model != "ideal":
         ge = activity.GEModel(subs, model)
         f = lambda x: math.log(x * ge.gammas(T_, [x, 1 - x])[0]) - math.log(ideal)
         try:
             x = brentq(f, 1e-10, 1 - 1e-10)
-            rows.append(row(f"Solubility with {model}", f"{x:.6g}"))
+            rows.append(row(f"Solubility with {model}", num(x)))
             log.step("Solubility with {} in {}", model, solvent.name)
-            log.line("Solve x·γ(x) = x_ideal = {} for x (Brent's method)", f"{ideal:.6g}")
+            log.line("Solve x·γ(x) = x_ideal = {} for x (Brent's method)", num(ideal))
             ge.explain(T_, [x, 1 - x])
-            log.line("x = {}; check x·γ = {}", f"{x:.6g}", f"{x * ge.gammas(T_, [x, 1 - x])[0]:.6g}")
+            log.line("x = {}; check x·γ = {}", num(x), num(x * ge.gammas(T_, [x, 1 - x])[0]))
         except ValueError:
             rows.append(row(f"Solubility with {model}", "no solution"))
     if T_ >= solute.Tm:
@@ -551,14 +552,14 @@ def osmotic(solvent, solute, T_, x_solute, model="ideal"):
     if log.on():
         log.step("Solvent activity")
         ge.explain(T_, xs)
-        log.line("a_solvent = x γ = {} × {} = {}", f"{xs[0]:.6g}", f"{g:.6g}", f"{xs[0] * g:.6g}")
+        log.line("a_solvent = x γ = {} × {} = {}", num(xs[0]), num(g), num(xs[0] * g))
         log.step("Osmotic pressure")
         log.line("V_solvent (liquid, databank) = {}", q(Vl, V))
-        log.line("Π = −(RT/V) ln(a) = −({} · {} / {}) × ln({}) = {}", R, K(T_), q(Vl, V), f"{xs[0] * g:.6g}", q(Pi, P))
-        log.line("Dilute limit (van 't Hoff): Π ≈ x_solute RT/V = {} × {} · {} / {} = {}", f"{x_solute:.6g}", R,
+        log.line("Π = −(RT/V) ln(a) = −({} · {} / {}) × ln({}) = {}", R, K(T_), q(Vl, V), num(xs[0] * g), q(Pi, P))
+        log.line("Dilute limit (van 't Hoff): Π ≈ x_solute RT/V = {} × {} · {} / {} = {}", num(x_solute), R,
                  q(T_, T), q(Vl, V), q(x_solute * R * T_ / Vl, P))
     res.section("Π = -(RT/V_solvent) ln(x_solvent γ_solvent)", [
-        row("Solvent molar volume", Vl, V), row("γ solvent", f"{g:.6f}"),
+        row("Solvent molar volume", Vl, V), row("γ solvent", num(g)),
         row("Osmotic pressure Π", Pi, P),
         row("Dilute approximation Π ≈ x RT/V", x_solute * R * T_ / Vl, P),
     ])
@@ -591,21 +592,21 @@ def fit_parameters(subs, T_, path, model="margules"):
         log.line("Psat used: {} = {}, {} = {}", subs[0].name, q(ps[0], P), subs[1].name, q(ps[1], P))
         log.line("γ1 = y1P/(x1Psat1), γ2 = y2P/(x2Psat2), G^E/RT = x1 ln γ1 + x2 ln γ2")
         log.table(["x1", "y1", "P", "ln γ1", "ln γ2", "G^E/RT", "G^E/(x1x2RT)"],
-                  [[f"{a:.4f}", f"{y1:.4f}", q(Pexp, P), f"{l1:.5f}", f"{l2:.5f}", f"{g_:.5f}", f"{yy:.5f}"]
+                  [[f"{a:.4f}", f"{y1:.4f}", q(Pexp, P), num(l1), num(l2), num(g_), num(yy)]
                    for (a, l1, l2, Pexp, y1), g_, yy in zip(pts, gert, y)])
     if model == "margules":
         A = np.vstack([x, 1 - x]).T
         A21, A12 = np.linalg.lstsq(A, y, rcond=None)[0]
         params = (A12, A21)
         log.step("Margules: G^E/(x1x2RT) = A21·x1 + A12·x2, linear least squares")
-        log.line("A12 = {} (value at x1 = 0), A21 = {} (value at x1 = 1)", f"{A12:.6g}", f"{A21:.6g}")
+        log.line("A12 = {} (value at x1 = 0), A21 = {} (value at x1 = 1)", num(A12), num(A21))
     else:
         A = np.vstack([x, 1 - x]).T
         inv = 1 / y
         c1, c2 = np.linalg.lstsq(A, inv, rcond=None)[0]
         params = (1 / c2, 1 / c1)
         log.step("van Laar: x1x2RT/G^E = x1/A'21 + x2/A'12, linear least squares")
-        log.line("1/A'21 = {}, 1/A'12 = {}  ->  A'12 = {}, A'21 = {}", f"{c1:.6g}", f"{c2:.6g}", f"{params[0]:.6g}", f"{params[1]:.6g}")
+        log.line("1/A'21 = {}, 1/A'12 = {}  ->  A'12 = {}, A'21 = {}", num(c1), num(c2), num(params[0]), num(params[1]))
     solver = vle.solver(subs, "modified-raoult", model, list(params))
     solver.psats = lambda T, ps=ps: ps
     with log.muted():
@@ -615,13 +616,13 @@ def fit_parameters(subs, T_, path, model="margules"):
     if log.on():
         log.step("Check: bubble P with the fitted model (modified Raoult) at each x1")
         log.table(["x1", "P data", "P model", "ΔP", "y1 data", "y1 model"],
-                  [[f"{p[0]:.4f}", q(p[3], P), q(c.P, P), q(d, P), f"{p[4]:.4f}", f"{c.ys[0]:.4f}"]
+                  [[f"{p[0]:.4f}", q(p[3], P), q(c.P, P), q(d, P), f"{p[4]:.4f}", num(c.ys[0])]
                    for p, c, d in zip(pts, calc, dev)])
         log.line("RMS deviation = √(Σ ΔP²/n) = {}", q(rms, P))
     res = Result(f"{model.capitalize()} parameters from P-x-y data")
     res.section("Fitted parameters", [
-        row("A12" if model == "margules" else "A'12", f"{params[0]:.6f}"),
-        row("A21" if model == "margules" else "A'21", f"{params[1]:.6f}"),
+        row("A12" if model == "margules" else "A'12", num(params[0])),
+        row("A21" if model == "margules" else "A'21", num(params[1])),
         row("RMS deviation in P", rms, P), row("Points used", str(len(pts))),
         row("Psat used", ", ".join(f"{s.name}: {fmt(p, P)}" for s, p in zip(subs, ps))),
     ])
@@ -667,5 +668,7 @@ def _read_pxy(path):
                     unit = m.group(1)
                 continue
             rows.append((to_si(vals[0], unit, P), vals[1], vals[2]))
+            for v in rows[-1]:
+                mark_given(v)
     return rows
 
