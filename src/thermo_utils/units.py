@@ -175,7 +175,11 @@ class DisplayUnits:
 
     def save(self):
         """Store current units as the base restored by reset()."""
-        _BASE.update({k: getattr(self, k) for k in self.__dataclass_fields__ if k != "follow_typed"})
+        _BASE.update({k: getattr(self, k) for k in self.__dataclass_fields__})
+
+    def saved(self, key):
+        """Unit set in the units menu, ignoring units typed in the last calculation."""
+        return _BASE.get(key, getattr(self, key))
 
     def reset(self):
         """Back to base units before a new calculation."""
@@ -189,6 +193,7 @@ class DisplayUnits:
 
 
 _INPUT_ONLY = {"tr"}
+
 
 _BASES = [
     {MOLAR_VOLUME: "m3/kg", MOLAR_ENERGY: "kj/kg", MOLAR_ENTROPY: "kj/(kg·k)"},

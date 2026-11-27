@@ -58,9 +58,10 @@ thermo-utils rankine P1=10kPa P3=8.6MPa T3=500C --plot --csv   # P-v and T-s plo
 thermo-utils gibbs CH4,H2O,CO,CO2,H2 T=1000 P=1 feed=CH4=2,H2O=3
 thermo-utils list           # every calculation and its inputs
 thermo-utils info ammonia   # databank values of a substance
+thermo-utils config         # create, check and locate the settings file
 ```
 
-- **Units:** type them with the value (`25C`, `10atm`, `300cm3/mol`, `5kmol/h`), with no space so no quotes are needed. Without a unit the defaults are K, bar, cm³/mol and J/mol. Output units can be changed in the menu (`u`) or with `--T-unit`, `--P-unit`, `--E-unit`, `--V-unit`.
+- **Units:** type them with the value (`25C`, `10atm`, `300cm3/mol`, `5kmol/h`), with no space so no quotes are needed. Without a unit the defaults are K, bar, cm³/mol and J/mol. Output units can be changed in the menu (`u`) or in the [settings file](#settings-file), both kept for later sessions, or for one run with `--T-unit`, `--P-unit`, `--E-unit`, `--V-unit`.
 - **Substances:** English names, formulas or CAS numbers (`water`, `H2O`, `7732-18-5`), right after the calculation name. `air` is available as a pseudo-pure fluid (reference EOS of Lemmon et al., 2000). Mixtures are comma separated (`ethanol,water`).
 - **Devices:** `pump`, `compressor`, `turbine` and `valve` are shortcuts for `device kind=...`.
 - **Cycles:** give any values that fix the cycle (states `T1`...`P4`, `v`, `u`, `h`, `s`, `x`, or results like `r`, `rp`, `rc`, `q_in`, `w_net`, `eta`, `mep`, `Wdot`) and the rest is solved. Energies default to kJ/kg; `--E-unit kJ/mol` (and `--V-unit L/mol`) shows them per mole. Gas cycles use Cp(T); `k=1.4` switches to the cold air-standard.
@@ -113,6 +114,58 @@ thermo-utils info ammonia   # databank values of a substance
 - Kelvin equation (vapor pressure over drops, bubbles and pores)
 - Adsorption isotherms (Langmuir, Freundlich, BET with specific surface area) fitted to CSV data
 - Gibbs adsorption isotherm (Szyszkowski fit), micellization (CMC, ΔG°mic)
+
+## Settings file
+
+thermo-utils reads a settings file every time it starts, in the menu and on the command line, so it can be adapted to the way you work.
+Run `thermo-utils config` to create it (with comments and examples), check it for mistakes and see where it is:
+
+| System | Location |
+|---|---|
+| Linux | `~/.config/thermo-utils/settings.toml` |
+| macOS | `~/Library/Application Support/thermo-utils/settings.toml` |
+| Windows | `%APPDATA%\thermo-utils\settings.toml` |
+
+The file is [TOML](https://toml.io): lines starting with `#` are comments, text goes in quotes, numbers and `true`/`false` do not.
+The menu option `u` (Display units) also writes to it, changing only the values in `[display]` and keeping your comments and other sections.
+Any mistake (an unknown unit, a misspelled key) is reported when the program starts, and the rest of the file still applies.
+
+### Display units for every calculation
+
+The `[display]` section sets the units of every result:
+
+```toml
+[display]
+temperature = "°C"        # K, °C, °F, R
+pressure = "kPa"          # Pa, kPa, MPa, bar, atm, psi, ...
+specific_energy = "kJ/kg"
+power = "kW"
+min_decimals = 4          # 2 to 8; results keep 6 significant figures
+typed_units_win = true    # units you type are kept in the results
+```
+
+Keys left out keep their default. Energy units set the family (J or cal) and the basis (per mol or per kg); the k prefix is picked per result from the size of the values.
+
+### Display units for one calculation
+
+A `[display.<calculation>]` section **overrides `[display]` for that calculation only**. Its name is the calculation id from `thermo-utils list` (`refrigeration`, `rankine`, `delta`, `vle`, ...), and keys left out keep the `[display]` value.
+For example, temperatures in °C in the refrigeration cycle and in K everywhere else:
+
+```toml
+[display]
+temperature = "K"
+
+[display.refrigeration]
+temperature = "°C"
+pressure = "kPa"
+```
+
+When several settings apply, the first one in this list wins:
+
+1. command-line options (`--T-unit`, `--decimals`, ...), for that run only
+2. units typed with a value (`25C`, `10atm`), when `typed_units_win = true`
+3. `[display.<calculation>]`
+4. `[display]`
 
 ## Accuracy
 

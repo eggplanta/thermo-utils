@@ -13,7 +13,7 @@ from rich.table import Table
 from rich.markup import escape
 from rich.text import Text
 
-from thermo_utils import __version__, calcs, cycles, drawing, equations, plots, properties, steplog, substances
+from thermo_utils import __version__, calcs, cycles, drawing, equations, plots, properties, settings, steplog, substances
 from thermo_utils.result import harmonize
 from thermo_utils.units import num
 from thermo_utils.units import DEFAULT_INPUT_UNITS, display, units_of
@@ -633,6 +633,7 @@ CUSTOM.update({c.id: _ask_cycle for c in calcs.CALCS if c.group == calcs.CYCLES}
 
 def run_interactive(calc):
     display.reset()
+    settings.apply_calc(calc.id)
     substances.NOTICES.clear()
     console.rule(f"[b]{calc.title}[/b]", style=ACCENT)
     if calc.help and calc.id != "delta":
@@ -784,6 +785,11 @@ def units_menu():
     except ValueError as exc:
         console.print(f"  [red]{exc}, keeping {display.min_decimals}[/red]")
     display.save()
+    try:
+        settings.store()
+        console.print(f"  [dim]Saved in {settings.path()}[/dim]")
+    except (OSError, ValueError) as exc:
+        console.print(f"  [red]Could not save the settings: {exc}[/red]")
 
 
 def _set_decimals(n):
@@ -808,8 +814,10 @@ def menu():
                 items.append(c)
                 table.add_row(f"[b]{len(items)}[/b]", c.title)
         table.add_row("", "")
-        table.add_row("[b]u[/b]", f"Display units [dim](T {display.temperature}, P {display.pressure}, "
-                                   f"E {display.molar_energy}, ≥{display.min_decimals} decimals, {'typed units win' if display.follow_typed else 'fixed'})[/dim]")
+        s = display.saved
+        table.add_row("[b]u[/b]", f"Display units [dim](T {s('temperature')}, P {s('pressure')}, "
+                                   f"E {s('molar_energy')}, ≥{s('min_decimals')} decimals, "
+                                   f"{'typed units win' if s('follow_typed') else 'fixed'})[/dim]")
         table.add_row("[b]Esc[/b]", "Exit")
         console.print(table)
         choice = ask_text("\n=>").lower()
@@ -905,13 +913,6 @@ def run(
     details: bool = typer.Option(False, "--details", help="Print the step-by-step calculation log"),
 ):
     """Run one calculation without the menu."""
-    _apply_units(t_unit, p_unit, e_unit, v_unit)
-    if decimals is not None:
-        try:
-            _set_decimals(decimals)
-        except ValueError as exc:
-            console.print(f"[red]Error: {exc}[/red]")
-            raise typer.Exit(1)
     given = {}
     if calc_id in DEVICES:
         calc_id, given["kind"] = "device", calc_id
@@ -920,6 +921,14 @@ def run(
     except KeyError:
         console.print(f"[red]Unknown calculation '{calc_id}'. See 'thermo-utils list'.[/red]")
         raise typer.Exit(1)
+    settings.apply_calc(calc.id)
+    _apply_units(t_unit, p_unit, e_unit, v_unit)
+    if decimals is not None:
+        try:
+            _set_decimals(decimals)
+        except ValueError as exc:
+            console.print(f"[red]Error: {exc}[/red]")
+            raise typer.Exit(1)
     loose = []
     for item in args or []:
         if "=" in item:
@@ -959,11 +968,24 @@ def run(
         save_csv(res, not no_open)
 
 
+@app.command("config")
+def config():
+    """Create the settings file if missing, check it and show where it is."""
+    created = settings.create()
+    settings.load([c.id for c in calcs.CALCS])
+    console.print(f"Settings file: {settings.path()}" + ("  [dim](created with the current values)[/dim]" if created else ""))
+    if not settings.WARNINGS:
+        console.print("[green]No problems found.[/green]")
+
+
 def main():
+    settings.load([c.id for c in calcs.CALCS])
+    for w in settings.WARNINGS:
+        console.print(f"[yellow]Settings: {escape(w)}[/yellow]")
     argv, i = sys.argv[1:], 0
     while i < len(argv) and argv[i].startswith("-"):
         i += 2 if argv[i].endswith("-unit") or argv[i] == "--decimals" else 1
-    if i < len(argv) and argv[i] not in ("list", "run"):
+    if i < len(argv) and argv[i] not in ("list", "run", "config"):
         sys.argv[1:] = ["run", argv[i]] + argv[:i] + argv[i + 1:]
     app()
 
