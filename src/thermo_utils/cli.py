@@ -477,7 +477,7 @@ def _ask_cycle(calc):
     else:
         model = cycles.MODELS[calc.id]
     gas = model.fluid == "gas"
-    default = "air" if gas else "water"
+    default = cycles.default_sub(model)
     while True:
         text = ask_text(f"  Substance [dim]\\[default {default}][/dim]") or default
         try:

@@ -54,7 +54,8 @@ _FACTORS = {
         "mol/s": 1.0, "kmol/s": 1e3, "kmol/h": 1000 / 3600, "mol/h": 1 / 3600,
         "mol/min": 1 / 60, "kmol/min": 1000 / 60,
     },
-    POWER: {"w": 1.0, "kw": 1e3, "mw": 1e6, "hp": 745.699872, "cv": 735.49875, "btu/h": BTU / 3600},
+    POWER: {"w": 1.0, "kw": 1e3, "mw": 1e6, "hp": 745.699872, "cv": 735.49875, "btu/h": BTU / 3600,
+            "kj/h": 1e3 / 3600, "tr": 12000 * BTU / 3600},
     LENGTH: {"m": 1.0, "cm": 1e-2, "mm": 1e-3, "um": 1e-6, "µm": 1e-6, "nm": 1e-9, "in": 0.0254},
     SURFACE_TENSION: {"n/m": 1.0, "mn/m": 1e-3, "dyn/cm": 1e-3, "j/m2": 1.0, "mj/m2": 1e-3},
     CONCENTRATION: {"mol/l": 1e3, "mmol/l": 1.0, "mol/m3": 1.0, "m": 1e3, "mm": 1.0, "mol/dm3": 1e3},
@@ -111,7 +112,8 @@ _ALIASES = {
     "kgf/cm²": "kgf/cm2", "j/m²": "j/m2", "mj/m²": "mj/m2", "mol/m³": "mol/m3", "mol/dm³": "mol/dm3",
 }
 _ALIASES.update({"m³/kg": "m3/kg", "cm³/g": "cm3/g", "ft³/lb": "ft3/lb", "ft³/lbmol": "ft3/lbmol",
-                 "m³": "m3", "dm³": "dm3", "cm³": "cm3", "ft³": "ft3", "in³": "in3", "cc": "cm3"})
+                 "m³": "m3", "dm³": "dm3", "cm³": "cm3", "ft³": "ft3", "in³": "in3", "cc": "cm3",
+                 "ton": "tr", "tons": "tr"})
 for _key in [k for t in (_FACTORS[MOLAR_ENTROPY], _MASS_FACTORS[MOLAR_ENTROPY]) for k in t]:
     _e, _n, _t = re.match(r"(.+)/\((.+)·(.)\)", _key).groups()
     for _form in ("{e}/{n}/{t}", "{e}/{n}{t}", "{e}/({n}{t})", "{e}/({n}.{t})", "{e}/{n}.{t}", "{e}/{n}·{t}",
@@ -225,7 +227,7 @@ _LABELS = {
     "kg/s": "kg/s", "kg/h": "kg/h", "kg/min": "kg/min", "t/h": "t/h", "g/s": "g/s", "lb/h": "lb/h",
     "mol/s": "mol/s", "kmol/s": "kmol/s", "kmol/h": "kmol/h", "mol/h": "mol/h", "mol/min": "mol/min",
     "kmol/min": "kmol/min",
-    "w": "W", "kw": "kW", "mw": "MW", "hp": "hp", "cv": "cv",
+    "w": "W", "kw": "kW", "mw": "MW", "hp": "hp", "cv": "cv", "kj/h": "kJ/h", "tr": "TR",
     "m": "m", "cm": "cm", "mm": "mm", "um": "µm", "µm": "µm", "nm": "nm", "in": "in",
     "n/m": "N/m", "mn/m": "mN/m", "dyn/cm": "dyn/cm", "j/m2": "J/m²", "mj/m2": "mJ/m²",
     "mol/l": "mol/L", "mmol/l": "mmol/L", "mol/m3": "mol/m³", "mol/dm3": "mol/dm³",

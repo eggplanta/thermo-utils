@@ -1,4 +1,4 @@
-"""Power cycles (Otto, Diesel, Brayton, Rankine) and their single steps, solved from any consistent data."""
+"""Cycles (Otto, Diesel, Brayton, Rankine, vapor-compression refrigeration) and single steps, solved from any data."""
 
 import itertools
 import math
@@ -111,12 +111,12 @@ def _gas_table(name):
 
 
 class Fluid:
-    """Real fluid per kg from its reference EOS (CoolProp), for Rankine."""
+    """Real fluid per kg from its reference EOS (CoolProp), for vapor cycles."""
 
     def __init__(self, sub):
         import CoolProp
         if not sub.coolprop:
-            raise ValueError(f"{sub.name} has no reference EOS; Rankine needs one (e.g. water).")
+            raise ValueError(f"{sub.name} has no reference EOS; vapor cycles need one (e.g. water, R134a).")
         self.sub, self.CP = sub, CoolProp
         self.AS = CoolProp.AbstractState("HEOS", sub.coolprop)
         self.Pc = self.AS.p_critical()
@@ -129,6 +129,12 @@ class Fluid:
         self.AS.update(self.CP.HmassP_INPUTS, h, p)
         out = self._out()
         out["x"] = self.quality(p, h)
+        return out
+
+    def state_pt(self, p, t):
+        self.AS.update(self.CP.PT_INPUTS, p, t)
+        out = self._out()
+        out["x"] = self.quality(p, out["h"])
         return out
 
     def h_ps(self, p, s):
@@ -145,14 +151,14 @@ class Fluid:
         hf, hg = self.sat(p, 0)["h"], self.sat(p, 1)["h"]
         return (h - hf) / (hg - hf)
 
-    def dome(self, n=60, pv=False, t_min=0):
+    def dome(self, n=60, pv=False, t_min=0, ph=False):
         AS = self.AS
         t_lo, t_hi = max(AS.Ttriple(), AS.Tmin(), t_min) + 0.01, AS.T_critical() - 0.05
         liq, vap = [], []
         for t in np.linspace(t_lo, t_hi, n):
             for q_, side in ((0, liq), (1, vap)):
                 AS.update(self.CP.QT_INPUTS, q_, t)
-                side.append((1 / AS.rhomass(), AS.p()) if pv else (AS.smass(), t))
+                side.append((AS.hmass(), AS.p()) if ph else (1 / AS.rhomass(), AS.p()) if pv else (AS.smass(), t))
         return liq + vap[::-1]
 
 
@@ -215,6 +221,11 @@ class Model:
     outputs: list
     evaluate: Callable
     processes: list = field(default_factory=list)
+    sub: str = ""
+
+
+def default_sub(model):
+    return model.sub or ("air" if model.fluid == "gas" else "water")
 
 
 STATE_KEYS = {"gas": "T P v u h s", "fluid": "T P v u h s x"}
@@ -455,6 +466,60 @@ def rankine(f, p):
     return out
 
 
+def refrigeration(f, p):
+    _log_basis(f)
+    p1, p2 = p["P1"], p["P2"]
+    if p2 <= p1:
+        raise ValueError("the condenser pressure P2 must be above the evaporator pressure P1")
+    t_evap, t_cond = f.sat(p1, 1)["T"], f.sat(p2, 0)["T"]
+    sh, sc = p["dT_sh"], p["dT_sc"]
+    log.step("State 1: compressor inlet at the evaporator pressure P1 = {}", q(p1, P))
+    log.line("T_evap = Tsat(P1) = {}", q(t_evap, T))
+    if sh > 1e-9:
+        s1 = f.state_pt(p1, t_evap + sh)
+        _log_state(1, s1, f"superheated: T1 = T_evap + ΔT_sh = {num(t_evap)} + {num(sh)} K")
+    else:
+        s1 = f.sat(p1, 1) | {"x": 1.0}
+        _log_state(1, s1, "saturated vapor, x = 1")
+    log.step("1→2 compressor to the condenser pressure P2 = {}", q(p2, P))
+    h2s = f.h_ps(p2, s1["s"])
+    t2s = f.state_ph(p2, h2s)["T"]
+    log.line("Isentropic: h2s = h(P2, s = s1) = {}, T2s = {}", q(h2s, E), q(t2s, T))
+    h2 = s1["h"] + (h2s - s1["h"]) / p["eta_c"]
+    log.line("h2 = h1 + (h2s − h1)/ηc = {} + ({} − {}) / {} = {}", q(s1["h"], E), q(h2s, E), q(s1["h"], E),
+             num(p["eta_c"]), q(h2, E))
+    s2 = f.state_ph(p2, h2)
+    _log_state(2, s2, "from P2, h2")
+    log.step("2→3 condenser at constant P2")
+    log.line("T_cond = Tsat(P2) = {}", q(t_cond, T))
+    if sc > 1e-9:
+        s3 = f.state_pt(p2, t_cond - sc)
+        _log_state(3, s3, f"subcooled: T3 = T_cond − ΔT_sc = {num(t_cond)} − {num(sc)} K")
+    else:
+        s3 = f.sat(p2, 0) | {"x": 0.0}
+        _log_state(3, s3, "saturated liquid, x = 0")
+    log.step("3→4 expansion valve to P1 (throttling, h4 = h3)")
+    s4 = f.state_ph(p1, s3["h"])
+    _log_state(4, s4, "from P1, h4 = h3")
+    w_c, q_l, q_h = s2["h"] - s1["h"], s1["h"] - s4["h"], s2["h"] - s3["h"]
+    if log.on():
+        log.step("Energy balance (steady flow: q − w = Δh)")
+        log.line("w_c = h2 − h1 = {}   q_L = h1 − h4 = {}   q_H = h2 − h3 = {}", q(w_c, E), q(q_l, E), q(q_h, E))
+        log.line("COP = q_L/w_c = {}   COP_hp = q_H/w_c = {}", num(q_l / w_c), num(q_h / w_c))
+        log.line("COP_Carnot = T_evap/(T_cond − T_evap) = {}/({} − {}) = {}", K(t_evap), K(t_cond), K(t_evap),
+                 num(t_evap / (t_cond - t_evap)))
+    out = _flat([s1, s2, s3, s4]) | dict(
+        w_c=w_c, q_L=q_l, q_H=q_h, COP=q_l / w_c, COP_hp=q_h / w_c, COP_carnot=t_evap / (t_cond - t_evap),
+        T_evap=t_evap, T_cond=t_cond, T2s=t2s, eta_c=p["eta_c"], dT_sh=sh, dT_sc=sc,
+    )
+    m = p.get("mdot")
+    if m is not None:
+        out.update(mdot=m, Qdot_L=m * q_l, Qdot_H=m * q_h, Wdot=m * w_c)
+        log.line("Q̇_L = ṁ·q_L = {} × {} = {}", q(m, MASS_FLOW), q(q_l, E), q(out["Qdot_L"], POWER))
+        log.line("Ẇ = ṁ·w_c = {}   Q̇_H = ṁ·q_H = {}", q(out["Wdot"], POWER), q(out["Qdot_H"], POWER))
+    return out
+
+
 # Single steps
 
 def _ds(s1, s2):
@@ -657,6 +722,21 @@ MODELS = {
         Var("x4s", "x4s (isentropic)", D)], rankine, [
         ("1→2", "pump", "s"), ("2→3", "boiler (heat in)", "P"), ("3→4", "turbine", "s"),
         ("4→1", "condenser (heat out)", "P")]),
+    "refrigeration": Model("refrigeration", "Vapor-compression refrigeration cycle", "fluid", 4, [
+        Var("P1", "P1", P, 1.5e5, 100.0, 1e8), Var("P2", "P2", P, 8e5, 100.0, 1e8), MDOT,
+        _eta("eta_c", "Compressor isentropic efficiency"),
+        Var("dT_sh", "Superheat at the compressor inlet ΔT_sh (K)", D, 5.0, 0.0, 200.0, 0.0),
+        Var("dT_sc", "Subcooling at the condenser outlet ΔT_sc (K)", D, 5.0, 0.0, 200.0, 0.0),
+    ], [
+        Var("T_evap", "Evaporator temperature (saturation)", T), Var("T_cond", "Condenser temperature (saturation)", T),
+        Var("w_c", "Compressor work w_c", E), Var("q_L", "Refrigeration effect q_L", E),
+        Var("q_H", "Heat rejected q_H", E), Var("COP", "COP (refrigerator) = q_L/w_c", D),
+        Var("COP_hp", "COP (heat pump) = q_H/w_c", D), Var("COP_carnot", "Carnot COP (T_evap, T_cond)", D),
+        Var("T2s", "T2s (isentropic)", T), Var("Qdot_L", "Cooling capacity Q̇_L", POWER),
+        Var("Qdot_H", "Heat rate rejected Q̇_H", POWER), Var("Wdot", "Compressor power Ẇ", POWER),
+    ], refrigeration, [
+        ("1→2", "compressor", "s"), ("2→3", "condenser (heat out)", "P"), ("3→4", "expansion valve", "h"),
+        ("4→1", "evaporator (heat in)", "P")], "R134a"),
 }
 
 _W = Var("w", "Work", E)
@@ -870,6 +950,10 @@ def run(model_id, sub, k=None, cp=None, steps=False, **given):
     res.notes.append(_basis(fluid))
     if model.id == "rankine":
         res.notes.append("State 1 is saturated liquid at P1.")
+    if model.id == "refrigeration":
+        s1 = f"{num(out['dT_sh'])} K superheated vapor" if out["dT_sh"] else "saturated vapor"
+        s3 = f"{num(out['dT_sc'])} K subcooled liquid" if out["dT_sc"] else "saturated liquid"
+        res.notes.append(f"State 1 is {s1} at P1 and state 3 is {s3} at P2.")
     if model.id == "pump" and not any(key.endswith("1") and key != "P1" for key in given):
         res.notes.append("Pump inlet taken as saturated liquid at P1.")
     if model.id == "condenser" and not any(key.endswith("2") for key in given):
@@ -884,7 +968,7 @@ def _log_basis(fluid):
         return
     log.step("Working fluid")
     if isinstance(fluid, Fluid):
-        log.line("{} from its reference EOS (CoolProp), per kg; h and s on the steam-table reference", fluid.sub.name)
+        log.line("{} from its reference EOS (CoolProp), per kg; {}", fluid.sub.name, _reference(fluid))
     elif fluid.cold:
         log.line("Cold air-standard: cp = {}, cv = {}, R = cp − cv = {}, k = cp/cv = {}",
                  f"{num(fluid.cp)} J/(kg·K)", f"{num(fluid.cv)} J/(kg·K)", f"{num(fluid.R)} J/(kg·K)", num(fluid.k))
@@ -916,6 +1000,8 @@ def _explain_solve(model, given, assumed, solved, sols):
 def _shown(v, out, given):
     if v.key in given or v.key == "strokes":
         return v.key != "strokes" or "rpm" in out
+    if v.key.startswith("dT_"):
+        return out[v.key] != 0
     if v.key.startswith("eta_") and v.key != "eta_carnot" or (v.key == "eta" and "w" in out):
         return out[v.key] != 1.0
     if v.key in HIDDEN_IF_IDEAL:
@@ -925,12 +1011,18 @@ def _shown(v, out, given):
 
 def _basis(fluid):
     if isinstance(fluid, Fluid):
-        return f"{fluid.sub.name} from its reference EOS; h and s on the usual steam-table reference."
+        return f"{fluid.sub.name} from its reference EOS; {_reference(fluid)}."
     if fluid.cold:
         return (f"Cold air-standard: constant cp = {fluid.cp / 1e3:.4g} kJ/(kg·K), "
                 f"cv = {fluid.cv / 1e3:.4g} kJ/(kg·K), k = {fluid.k:.4g}.")
     ref = "air-table reference" if fluid.sub.name == "air" else "h = s = 0 at 298.15 K, 1 atm"
     return f"Ideal gas with Cp(T), {ref}."
+
+
+def _reference(fluid):
+    if fluid.sub.coolprop == "Water":
+        return "h and s on the usual steam-table reference"
+    return "h and s on the CoolProp default reference (IIR for refrigerants: h = 200 kJ/kg, s = 1 kJ/(kg·K), sat. liquid at 0 °C)"
 
 
 def _differs(a, b):
@@ -1065,6 +1157,11 @@ def equations(model, fluid, out):
         lines += ["1: saturated liquid at P1     s2s = s1     s4s = s3",
                   "w_p = h2 − h1 = (h2s − h1)/ηp ≈ v1(P2 − P1)/ηp     w_t = h3 − h4 = ηt(h3 − h4s)",
                   "q_in = h3 − h2     q_out = h4 − h1     η = w_net/q_in     x = (h − hf)/hfg"]
+    if m == "refrigeration":
+        lines += ["1: saturated vapor at P1 (or T_evap + ΔT_sh)     3: saturated liquid at P2 (or T_cond − ΔT_sc)",
+                  "s2s = s1     w_c = h2 − h1 = (h2s − h1)/ηc     h4 = h3 (throttling)",
+                  "q_L = h1 − h4     q_H = h2 − h3     COP = q_L/w_c     COP_hp = q_H/w_c = COP + 1",
+                  "COP_Carnot = T_evap/(T_cond − T_evap)     Q̇_L = ṁ·q_L     Ẇ = ṁ·w_c"]
     if m == "heat-v":
         lines += ["q = u2 − u1 = " + ("cv(T2 − T1)" if cold else "∫cv dT"), "P2/P1 = T2/T1   (v = const)"]
     if m == "heat-p":
@@ -1091,30 +1188,46 @@ def _plot(panels, title):
     return plots.figure(panels, title)
 
 
-def diagram(model, fluid, out, pv=None):
+def diagram(model, fluid, out, pv=None, ph=False):
     pv = model.id in ("otto", "diesel") if pv is None else pv
     curves, n = [], model.states
     for step, name, kind in model.processes:
         a, b = int(step[0]), int(step[-1])
-        pts = _pv_path(out, a, b, kind) if pv else _ts_path(model, fluid, out, a, b, kind)
+        if ph:
+            pts = [(out[f"h{a}"], out[f"P{a}"]), (out[f"h{b}"], out[f"P{b}"])]
+        else:
+            pts = _pv_path(out, a, b, kind) if pv else _ts_path(model, fluid, out, a, b, kind)
         curves.append({"pts": pts, "style": "accent", "name": f"{step} {name}"})
     dome = None
     if model.fluid == "fluid":
-        t_min = min(out[f"T{i}"] for i in range(1, n + 1)) - 15 if pv else 0
-        dome = fluid.dome(pv=pv, t_min=t_min)
-    if pv:
+        crop = pv or ph or model.id == "refrigeration"
+        t_min = min(out[f"T{i}"] for i in range(1, n + 1)) - 15 if crop else 0
+        dome = fluid.dome(pv=pv, t_min=t_min, ph=ph)
+    if ph:
+        pts = [(out[f"h{i}"], out[f"P{i}"]) for i in range(1, n + 1)]
+        axes = (("h", E), ("P", P))
+    elif pv:
         pts = [(out[f"v{i}"], out[f"P{i}"]) for i in range(1, n + 1)]
         axes = (("v", V), ("P", P))
     else:
         pts = [(out[f"s{i}"], out[f"T{i}"]) for i in range(1, n + 1)]
         axes = (("s", S), ("T", T))
-    return dict(curves=curves, points=pts, axes=axes, dome=dome, ylog=pv, arrows=True,
-                equipment=model.id if model.id in ("brayton", "rankine") else None)
+    return dict(curves=curves, points=pts, axes=axes, dome=dome, ylog=pv or ph, arrows=True,
+                equipment=model.id if model.id in ("brayton", "rankine", "refrigeration") else None)
 
 
 def plot_panels(model, fluid, out):
     """P-v and T-s of a cycle; the enclosed area is the net work when every step is reversible."""
-    reversible = all(out.get(k, 1.0) == 1.0 for k in ("eta_c", "eta_e", "eta_t", "eta_p"))
+    reversible = model.id != "refrigeration" and all(
+        out.get(k, 1.0) == 1.0 for k in ("eta_c", "eta_e", "eta_t", "eta_p"))
+    if model.id == "refrigeration":
+        panels = []
+        for ph in (False, True):
+            d = diagram(model, fluid, out, False, ph)
+            d["title"] = "P-h diagram" if ph else "T-s diagram"
+            d["legend"] = [("accent", "cycle"), ("dim", "saturation dome")]
+            panels.append(d)
+        return panels
     panels = []
     for pv in (True, False):
         d = diagram(model, fluid, out, pv)
@@ -1168,6 +1281,10 @@ def _ts_path(model, fluid, out, a, b, kind):
     if kind == "v" and model.fluid == "gas":
         v = out[f"v{a}"]
         return [(fluid.s(t, fluid.R * t / v), t) for t in np.linspace(ta, tb, 60)]
+    if kind == "h" and model.fluid == "fluid":
+        h = out[f"h{a}"]
+        return [(st["s"], st["T"]) for st in (fluid.state_ph(p, h) for p in
+                                               np.geomspace(out[f"P{a}"], out[f"P{b}"], 40))]
     if kind != "P":
         return [(sa, ta), (sb, tb)]
     p = out[f"P{a}"]
@@ -1214,6 +1331,15 @@ FORMS = {
         (None, "Cycle"), ("q_in", "heat added"), ("w_net", "net work"), ("eta", "thermal efficiency"),
         (None, "Real plant (optional)"), ("eta_t", "turbine isentropic efficiency"),
         ("eta_p", "pump isentropic efficiency"), ("mdot", "mass flow rate"), ("Wdot", "net power")],
+    "refrigeration": [
+        (None, "States"), ("T_evap", "evaporator temperature (saturation)"), ("P1", "evaporator pressure"),
+        ("T_cond", "condenser temperature (saturation)"), ("P2", "condenser pressure"),
+        ("dT_sh", "superheat at the compressor inlet, K (default 0)"),
+        ("dT_sc", "subcooling at the condenser outlet, K (default 0)"),
+        (None, "Cycle"), ("COP", "coefficient of performance"), ("q_L", "refrigeration effect"),
+        ("w_c", "compressor work"),
+        (None, "Real plant (optional)"), ("eta_c", "compressor isentropic efficiency"), ("mdot", "mass flow rate"),
+        ("Qdot_L", "cooling capacity"), ("Qdot_H", "heat rate rejected (heat pump)"), ("Wdot", "compressor power")],
     "compression": _states({1: "start", 2: "end"}) + [
         ("r", "compression ratio v1/v2"), ("w", "work in"), ("eta", "isentropic efficiency")],
     "expansion": _states({1: "start", 2: "end"}) + [

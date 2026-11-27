@@ -36,6 +36,20 @@ RANKINE = r"""
             q_out
 """
 
+REFRIGERATION = r"""
+            q_H
+       ┌──────────────┐
+  3 ┌──┤  condenser   ├──┐ 2
+    │  └──────────────┘  │
+ ┌──┴───┐          ┌─────┴──────┐
+ │valve │          │ compressor │◀─ w_c
+ └──┬───┘          └─────┬──────┘
+    │  ┌──────────────┐  │
+  4 └──┤  evaporator  ├──┘ 1
+       └──────────────┘
+            q_L
+"""
+
 SHAPES = r"""
 compressor
           w_in
@@ -88,7 +102,7 @@ def _shapes():
     return out
 
 
-EQUIPMENT = {"brayton": BRAYTON, "rankine": RANKINE, **_shapes()}
+EQUIPMENT = {"brayton": BRAYTON, "rankine": RANKINE, "refrigeration": REFRIGERATION, **_shapes()}
 ALT = "rgb(90,170,255)"
 
 

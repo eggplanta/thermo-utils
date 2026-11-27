@@ -52,6 +52,7 @@ thermo-utils otto T1=27C P1=100kPa r=8 q_in=800 --details   # every step of the 
 thermo-utils brayton T1=300 T3=1300 w_net=300 eta_c=0.85     # finds rp
 thermo-utils rankine P1=10kPa P3=3MPa x3=1 Wdot=10MW eta_t=0.87
 thermo-utils step steam-turbine P1=3MPa T1=350C P2=10kPa x2=0.9
+thermo-utils refrigeration R134a T_evap=-25C T_cond=26C eta_c=0.8 Qdot_L=120000kJ/h
 thermo-utils diagram ethanol,water P=1atm --plot
 thermo-utils rankine P1=10kPa P3=8.6MPa T3=500C --plot --csv   # P-v and T-s plots + result table
 thermo-utils gibbs CH4,H2O,CO,CO2,H2 T=1000 P=1 feed=CH4=2,H2O=3
@@ -84,11 +85,12 @@ thermo-utils info ammonia   # databank values of a substance
 **Flow devices**
 - One-step devices: compressor, pump, turbine and valve, with efficiency and power for a given flow
 
-**Power cycles**
-- Otto, Diesel, Brayton and Rankine, solved from any consistent data: known data in, the rest out, in either direction (e.g. r from η, T3 from q_in, rp from w_net, ṁ from the power)
+**Cycles**
+- Otto, Diesel, Brayton, Rankine and vapor-compression refrigeration (or heat pump), solved from any consistent data: known data in, the rest out, in either direction (e.g. r from η, T3 from q_in, rp from w_net, ṁ from the power)
 - Isentropic efficiencies of compressor, turbine, pump and piston strokes; engine power from displacement and rpm
 - Single steps (compression, expansion, heating at constant v or P, compressor, turbine, pump, boiler, condenser) solved the same way
 - Air with Cp(T) on the air-table reference or the cold air-standard (constant k); Rankine with the reference EOS of water (or another fluid)
+- Refrigeration with any refrigerant that has a reference EOS (R134a by default, ammonia, propane...): superheat and subcooling, COP of refrigerator, heat pump and Carnot, capacity in kW or tons of refrigeration (`TR`), T-s and P-h diagrams
 - P-v or T-s diagram of the cycle (with the saturation dome for Rankine) and the equipment sketch, drawn in the terminal
 
 **Mixtures**

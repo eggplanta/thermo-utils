@@ -139,7 +139,7 @@ MIX = "Mixtures"
 PHASE = "Phase equilibrium"
 REACT = "Chemical equilibrium"
 SURF = "Surface phenomena"
-CYCLES = "Power cycles"
+CYCLES = "Cycles"
 
 CALCS = [
     Calc("info", PURE, "Substance data (Tc, Pc, ω, Cp, ΔHf...)", properties.substance_info, [_sub()]),
@@ -311,15 +311,13 @@ def _cycle_fields(models):
 def _cycle_fn(model_id):
     def fn(sub=None, k=None, cp=None, **given):
         model = cycles.MODELS[model_id]
-        return cycles.run(model_id, sub or substances.get("air" if model.fluid == "gas" else "water"),
-                          k, cp, **given)
+        return cycles.run(model_id, sub or substances.get(cycles.default_sub(model)), k, cp, **given)
     return fn
 
 
 def _step_fn(kind, sub=None, k=None, cp=None, **given):
     model = cycles.STEPS[kind]
-    return cycles.run(kind, sub or substances.get("air" if model.fluid == "gas" else "water"), k, cp,
-                      steps=True, **given)
+    return cycles.run(kind, sub or substances.get(cycles.default_sub(model)), k, cp, steps=True, **given)
 
 
 CYCLE_HELP = "Any data in, the rest out: give any values that fix the cycle and the rest is solved."
