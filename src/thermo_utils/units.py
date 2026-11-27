@@ -161,6 +161,8 @@ class DisplayUnits:
             return
         if name:
             TYPED[name] = label(unit)
+        if not force and _norm(unit) in _INPUT_ONLY:
+            return
         if hasattr(self, kind) and (force or kind not in _ADOPTED):
             setattr(self, kind, label(unit))
             _ADOPTED.add(kind)
@@ -185,6 +187,8 @@ class DisplayUnits:
         _EXACT.clear()
         _PREFIX[0] = None
 
+
+_INPUT_ONLY = {"tr"}
 
 _BASES = [
     {MOLAR_VOLUME: "m3/kg", MOLAR_ENERGY: "kj/kg", MOLAR_ENTROPY: "kj/(kg·k)"},

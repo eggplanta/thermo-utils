@@ -284,13 +284,14 @@ def _build(cas):
     consts, corrs = ChemicalConstantsPackage.from_IDs([meta.CASs])
     first = lambda attr: (getattr(consts, attr, None) or [None])[0]
     groups = first("UNIFAC_groups") or {}
+    coolprop = _coolprop_by_cas().get(meta.CASs)
     return Substance(
-        name=meta.common_name, cas=meta.CASs, formula=meta.formula, MW=first("MWs"),
+        name=coolprop if coolprop and coolprop[0] == "R" and coolprop[1:2].isdigit() else meta.common_name, cas=meta.CASs, formula=meta.formula, MW=first("MWs"),
         Tc=first("Tcs"), Pc=first("Pcs"), Vc=first("Vcs"), Zc=first("Zcs"), omega=first("omegas"),
         Tb=first("Tbs"), Tm=first("Tms"), Hfus=first("Hfus_Tms"), Hf=first("Hfgs"), Gf=first("Gfgs"),
         S0=first("S0gs"), Hf_std=first("Hf_STPs"), phase_std=first("phase_STPs"), dipole=first("dipoles"),
         r=first("UNIFAC_Rs"), q=first("UNIFAC_Qs"), unifac_groups=dict(groups),
-        coolprop=_coolprop_by_cas().get(meta.CASs), _constants=consts, _correlations=corrs,
+        coolprop=coolprop, _constants=consts, _correlations=corrs,
     )
 
 
