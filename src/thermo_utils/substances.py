@@ -53,6 +53,23 @@ def _coolprop_by_cas():
     return table
 
 
+def _r_key(name):
+    key = name.lower().replace("-", "").replace(" ", "")
+    return key if key[:1] == "r" and key[1:2].isdigit() else None
+
+
+@lru_cache(maxsize=1)
+def _refrigerants():
+    """CoolProp R numbers and their aliases -> CAS."""
+    table = {}
+    for name in CP.get_global_param_string("FluidsList").split(","):
+        cas = CP.get_fluid_param_string(name, "CAS")
+        aliases = CP.get_fluid_param_string(name, "aliases").split(",")
+        for key in filter(None, map(_r_key, [name, *aliases])):
+            table.setdefault(key, cas)
+    return table
+
+
 @dataclass(eq=False)
 class Substance:
     name: str
@@ -259,6 +276,15 @@ def _lookup(query):
     ident = resolve_id(query)
     if ident.lower() in AIR_NAMES:
         return air(), None
+    cas = _refrigerants().get(_r_key(ident) or "")
+    if cas and cas.endswith(".PPF"):
+        raise ValueError(f"{query} is a refrigerant blend; blends are not supported yet.")
+    if cas:
+        try:
+            search_chemical(cas)
+        except ValueError:
+            raise ValueError(f"{query} has a reference EOS but no databank entry (CAS {cas}).") from None
+        return _build(cas), None
     try:
         meta = search_chemical(ident)
     except ValueError:
@@ -284,7 +310,7 @@ def _build(cas):
     consts, corrs = ChemicalConstantsPackage.from_IDs([meta.CASs])
     first = lambda attr: (getattr(consts, attr, None) or [None])[0]
     groups = first("UNIFAC_groups") or {}
-    coolprop = _coolprop_by_cas().get(meta.CASs)
+    coolprop = _coolprop_by_cas().get(meta.CASs) or _coolprop_by_cas().get(cas)
     return Substance(
         name=coolprop if coolprop and coolprop[0] == "R" and coolprop[1:2].isdigit() else meta.common_name, cas=meta.CASs, formula=meta.formula, MW=first("MWs"),
         Tc=first("Tcs"), Pc=first("Pcs"), Vc=first("Vcs"), Zc=first("Zcs"), omega=first("omegas"),
