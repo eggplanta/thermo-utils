@@ -12,7 +12,7 @@
 </div>
 
 **thermo-utils** is a command-line thermodynamics calculator for chemical engineering.
-It covers pure fluids, heat effects, flow devices, mixtures, phase equilibrium, chemical equilibrium and surface phenomena, and is accurate enough for design work.
+It covers pure fluids, heat effects, flow devices, cycles, humid air, mixtures, phase equilibrium, chemical equilibrium and surface phenomena, and is accurate enough for design work.
 You only type the substance name: Tc, Pc, ω, Cp, ΔHf, Psat and the other data come from built-in databanks.
 
 ## Screenshots
@@ -53,6 +53,8 @@ thermo-utils brayton T1=300 T3=1300 w_net=300 eta_c=0.85     # finds rp
 thermo-utils rankine P1=10kPa P3=3MPa x3=1 Wdot=10MW eta_t=0.87
 thermo-utils step steam-turbine P1=3MPa T1=350C P2=10kPa x2=0.9
 thermo-utils refrigeration R134a T_evap=-25C T_cond=26C eta_c=0.8 Qdot_L=120000kJ/h
+thermo-utils humid-air T=35C RH=40%
+thermo-utils air-process dehumidify T1=30C RH1=80% V1=10m3/min T2=14C RH2=100%
 thermo-utils diagram ethanol,water P=1atm --plot
 thermo-utils rankine P1=10kPa P3=8.6MPa T3=500C --plot --csv   # P-v and T-s plots + result table
 thermo-utils gibbs CH4,H2O,CO,CO2,H2 T=1000 P=1 feed=CH4=2,H2O=3
@@ -93,6 +95,10 @@ thermo-utils config         # create, check and locate the settings file
 - Air with Cp(T) on the air-table reference or the cold air-standard (constant k); Rankine with the reference EOS of water (or another fluid)
 - Refrigeration with any refrigerant that has a reference EOS (R134a by default, ammonia, propane...): superheat and subcooling, COP of refrigerator, heat pump and Carnot, capacity in kW or tons of refrigeration (`TR`), T-s and P-h diagrams
 - P-v or T-s diagram of the cycle (with the saturation dome for Rankine) and the equipment sketch, drawn in the terminal
+
+**Humid air**
+- State of humid air from any two of T, RH, ω, wet-bulb and dew-point temperatures and h (real humid air, ASHRAE RP-1485)
+- Processes with mass and energy balances: cooling with dehumidification, adiabatic mixing of two streams, evaporative cooling; flows as dry-air mass or volume (m³/h, cfm...)
 
 **Mixtures**
 - Fugacity of species in mixtures (PR, SRK, virial) and the Lewis-Randall rule

@@ -13,7 +13,9 @@ from rich.table import Table
 from rich.markup import escape
 from rich.text import Text
 
-from thermo_utils import __version__, calcs, cycles, drawing, equations, plots, properties, settings, steplog, substances
+from thermo_utils import (
+    __version__, calcs, cycles, drawing, equations, plots, properties, psychro, settings, steplog, substances,
+)
 from thermo_utils.result import harmonize
 from thermo_utils.units import num
 from thermo_utils.units import DEFAULT_INPUT_UNITS, display, units_of
@@ -493,6 +495,15 @@ def _ask_cycle(calc):
     return kwargs | form(rows)
 
 
+def _ask_humid(calc):
+    f = {x.name: x for x in calc.fields}
+    kwargs = {}
+    if "kind" in f:
+        kwargs["kind"] = _prompt_field(f["kind"])
+    rows = psychro.FORMS[kwargs.get("kind", "state")]
+    return kwargs | form([(key, desc, f[key]) if key else (None, desc, None) for key, desc in rows])
+
+
 def _unit_hint(field):
     if field.type != calcs.QUANTITY:
         return ""
@@ -629,6 +640,7 @@ CUSTOM = {
     "state": lambda calc: _ask_pair(calc, "x"),
 }
 CUSTOM.update({c.id: _ask_cycle for c in calcs.CALCS if c.group == calcs.CYCLES})
+CUSTOM.update({c.id: _ask_humid for c in calcs.CALCS if c.group == calcs.HUMID})
 
 
 def run_interactive(calc):

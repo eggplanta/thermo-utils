@@ -10,6 +10,7 @@ MOLAR_VOLUME = "molar_volume"
 MOLAR_ENERGY = "molar_energy"
 MOLAR_ENTROPY = "molar_entropy"
 MASS_FLOW = "mass_flow"
+VOLUME_FLOW = "volume_flow"
 MOLAR_FLOW = "molar_flow"
 POWER = "power"
 DIMENSIONLESS = "dimensionless"
@@ -49,6 +50,10 @@ _FACTORS = {
     MASS_FLOW: {
         "kg/s": 1.0, "kg/h": 1 / 3600, "kg/min": 1 / 60, "t/h": 1000 / 3600,
         "g/s": 1e-3, "lb/h": 0.45359237 / 3600,
+    },
+    VOLUME_FLOW: {
+        "m3/s": 1.0, "m3/min": 1 / 60, "m3/h": 1 / 3600, "l/s": 1e-3, "l/min": 1e-3 / 60,
+        "cfm": FT3 / 60,
     },
     MOLAR_FLOW: {
         "mol/s": 1.0, "kmol/s": 1e3, "kmol/h": 1000 / 3600, "mol/h": 1 / 3600,
@@ -113,7 +118,7 @@ _ALIASES = {
 }
 _ALIASES.update({"m³/kg": "m3/kg", "cm³/g": "cm3/g", "ft³/lb": "ft3/lb", "ft³/lbmol": "ft3/lbmol",
                  "m³": "m3", "dm³": "dm3", "cm³": "cm3", "ft³": "ft3", "in³": "in3", "cc": "cm3",
-                 "ton": "tr", "tons": "tr"})
+                 "ton": "tr", "tons": "tr", "m³/s": "m3/s", "m³/min": "m3/min", "m³/h": "m3/h"})
 for _key in [k for t in (_FACTORS[MOLAR_ENTROPY], _MASS_FACTORS[MOLAR_ENTROPY]) for k in t]:
     _e, _n, _t = re.match(r"(.+)/\((.+)·(.)\)", _key).groups()
     for _form in ("{e}/{n}/{t}", "{e}/{n}{t}", "{e}/({n}{t})", "{e}/({n}.{t})", "{e}/{n}.{t}", "{e}/{n}·{t}",
@@ -122,7 +127,7 @@ for _key in [k for t in (_FACTORS[MOLAR_ENTROPY], _MASS_FACTORS[MOLAR_ENTROPY]) 
 
 DEFAULT_INPUT_UNITS = {
     TEMPERATURE: "K", PRESSURE: "bar", MOLAR_VOLUME: "cm3/mol",
-    MOLAR_ENERGY: "J/mol", MOLAR_ENTROPY: "J/(mol·K)", MASS_FLOW: "kg/s",
+    MOLAR_ENERGY: "J/mol", MOLAR_ENTROPY: "J/(mol·K)", MASS_FLOW: "kg/s", VOLUME_FLOW: "m3/s",
     MOLAR_FLOW: "mol/s", POWER: "kW", DIMENSIONLESS: "",
     LENGTH: "m", SURFACE_TENSION: "mN/m", CONCENTRATION: "mol/L",
     SPECIFIC_ENERGY: "kJ/kg", SPECIFIC_ENTROPY: "kJ/(kg·K)", SPECIFIC_VOLUME: "m3/kg",
@@ -138,6 +143,7 @@ class DisplayUnits:
     molar_energy: str = "J/mol"
     molar_entropy: str = "J/(mol·K)"
     mass_flow: str = "kg/s"
+    volume_flow: str = "m³/s"
     molar_flow: str = "mol/s"
     power: str = "kW"
     length: str = "m"
@@ -235,6 +241,7 @@ _LABELS = {
     "j/(kg·k)": "J/(kg·K)", "kj/(kg·k)": "kJ/(kg·K)", "kcal/(kg·k)": "kcal/(kg·K)", "btu/(lb·r)": "Btu/(lb·R)",
     "j/g": "J/g", "cal/g": "cal/g", "j/(g·k)": "J/(g·K)", "cal/(g·k)": "cal/(g·K)",
     "btu/lbmol": "Btu/lbmol", "btu/(lbmol·r)": "Btu/(lbmol·R)", "ft3/lbmol": "ft³/lbmol", "btu/h": "Btu/h",
+    "m3/s": "m³/s", "m3/min": "m³/min", "m3/h": "m³/h", "l/s": "L/s", "l/min": "L/min", "cfm": "cfm",
     "kg/s": "kg/s", "kg/h": "kg/h", "kg/min": "kg/min", "t/h": "t/h", "g/s": "g/s", "lb/h": "lb/h",
     "mol/s": "mol/s", "kmol/s": "kmol/s", "kmol/h": "kmol/h", "mol/h": "mol/h", "mol/min": "mol/min",
     "kmol/min": "kmol/min",

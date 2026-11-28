@@ -4,12 +4,12 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from thermo_utils import (
-    activity, chemical_equilibrium, cycles, devices, heat, mixtures, properties, substances, surface, vle,
+    activity, chemical_equilibrium, cycles, devices, heat, mixtures, properties, psychro, substances, surface, vle,
 )
 from thermo_utils.pure import MODELS
 from thermo_utils.units import (
     DIMENSIONLESS, MASS_FLOW, MOLAR_ENERGY, MOLAR_ENTROPY, MOLAR_FLOW, PRESSURE,
-    SPECIFIC_ENTROPY, TEMPERATURE, MOLAR_VOLUME,
+    SPECIFIC_ENERGY, SPECIFIC_ENTROPY, TEMPERATURE, MOLAR_VOLUME, VOLUME_FLOW,
     _NUMBER, display, mark_given, parse_quantity, set_molar_mass,
 )
 
@@ -140,6 +140,7 @@ PHASE = "Phase equilibrium"
 REACT = "Chemical equilibrium"
 SURF = "Surface phenomena"
 CYCLES = "Cycles"
+HUMID = "Humid air"
 
 CALCS = [
     Calc("info", PURE, "Substance data (Tc, Pc, ω, Cp, ΔHf...)", properties.substance_info, [_sub()]),
@@ -316,6 +317,27 @@ CALCS += [
 ]
 
 
+# Humid air
+
+def _humid_fields(suffix=""):
+    kinds = {"T": TEMPERATURE, "Twb": TEMPERATURE, "Tdp": TEMPERATURE, "h": SPECIFIC_ENERGY}
+    return [_q(f"{k}{suffix}", f"{k}{suffix}", kinds[k], True) if k in kinds
+            else Field(f"{k}{suffix}", f"{k}{suffix}", NUMBER, optional=True) for k in psychro.PROPS]
+
+
+_P_ATM = _q("P", "Total pressure", PRESSURE, default=101325.0)
+CALCS += [
+    Calc("humid-air", HUMID, "Humid air state (RH, ω, wet bulb, dew point, h)", psychro.state,
+         [_P_ATM] + _humid_fields(), "Give any two of T, RH, W, Twb, Tdp, h."),
+    Calc("air-process", HUMID, "Humid air process: dehumidification, mixing, evaporative cooling", psychro.process,
+         [Field("kind", "Process", CHOICE, choices=psychro.KINDS), _P_ATM] + _humid_fields("1") + _humid_fields("2")
+         + [_q("m1", "Dry air flow 1", MASS_FLOW, True), _q("V1", "Volume flow 1", VOLUME_FLOW, True),
+            _q("m2", "Dry air flow 2", MASS_FLOW, True), _q("V2", "Volume flow 2", VOLUME_FLOW, True),
+            _q("T_water", "Water temperature", TEMPERATURE, True)],
+         "Give two properties for each known state (e.g. T1 and RH1)."),
+]
+
+
 def by_id(calc_id):
     for c in CALCS:
         if c.id == calc_id:
@@ -324,7 +346,7 @@ def by_id(calc_id):
 
 
 def groups():
-    out = {g: [] for g in (PURE, HEAT, DEVICES, CYCLES, MIX, PHASE, REACT, SURF)}
+    out = {g: [] for g in (PURE, HEAT, DEVICES, CYCLES, HUMID, MIX, PHASE, REACT, SURF)}
     for c in CALCS:
         out.setdefault(c.group, []).append(c)
     return out
