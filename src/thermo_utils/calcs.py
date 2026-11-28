@@ -4,12 +4,13 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from thermo_utils import (
-    activity, chemical_equilibrium, cycles, devices, heat, mixtures, properties, psychro, substances, surface, vle,
+    activity, chemical_equilibrium, cycles, devices, heat, hx, mixtures, properties, psychro, substances, surface,
+    vle,
 )
 from thermo_utils.pure import MODELS
 from thermo_utils.units import (
     DIMENSIONLESS, MASS_FLOW, MOLAR_ENERGY, MOLAR_ENTROPY, MOLAR_FLOW, PRESSURE,
-    SPECIFIC_ENERGY, SPECIFIC_ENTROPY, TEMPERATURE, MOLAR_VOLUME, VOLUME_FLOW,
+    POWER, SPECIFIC_ENERGY, SPECIFIC_ENTROPY, TEMPERATURE, MOLAR_VOLUME, VOLUME_FLOW,
     _NUMBER, display, mark_given, parse_quantity, set_molar_mass,
 )
 
@@ -181,6 +182,18 @@ CALCS = [
         _q("T1", "Inlet T", TEMPERATURE), _q("P1", "Inlet P", PRESSURE), _q("P2", "Outlet P", PRESSURE),
         Field("efficiency", "Isentropic efficiency (0.75 or 75%)", NUMBER, default=1.0), MODEL_FIELD, FLOW_FIELD,
     ]),
+    Calc("heat-exchanger", DEVICES, "Heat exchanger: energy balance, LMTD, ε-NTU, entropy generation",
+         hx.heat_exchanger, [
+             Field("hot", "Hot fluid (default water)", SUBSTANCE, optional=True),
+             Field("cold", "Cold fluid (default water)", SUBSTANCE, optional=True),
+             Field("flow", "Flow arrangement", CHOICE, default="counter", choices=hx.ARRANGEMENTS), MODEL_FIELD,
+         ] + [_q(f"P{s}", f"P{s}", PRESSURE, True) for s in "hc"]
+           + [_q(f"T{s}{i}", f"T{s}{i}", TEMPERATURE, True) for s in "hc" for i in "12"]
+           + [Field(f"x{s}{i}", f"x{s}{i}", NUMBER, optional=True) for s in "hc" for i in "12"]
+           + [_q(f"m{s}", f"m{s}", MASS_FLOW, True) for s in "hc"]
+           + [_q("Q", "Heat duty", POWER, True), Field("U", "U in W/(m²·K)", NUMBER, optional=True),
+              Field("A", "Area in m²", NUMBER, optional=True)],
+         "Give what you know of both streams; the missing value of each stream is solved."),
 ]
 
 
@@ -228,12 +241,12 @@ CALCS += [
     Calc("solubility", PHASE, "Solubility of a solid in a liquid", mixtures.solubility, [
         _sub("solute", "Solid solute"), _q("T_", "T", TEMPERATURE),
         Field("solvent", "Solvent (optional)", SUBSTANCE, optional=True),
-        Field("model", "Activity model", CHOICE, default="ideal", choices=activity.MODELS),
+        Field("model", "Activity model", CHOICE, default="ideal", choices=activity.MODELS), PARAMS_FIELD,
     ]),
     Calc("osmotic", PHASE, "Osmotic pressure", mixtures.osmotic, [
         _sub("solvent", "Solvent"), _sub("solute", "Solute"), _q("T_", "T", TEMPERATURE),
         Field("x_solute", "Solute mole fraction", NUMBER),
-        Field("model", "Activity model", CHOICE, default="ideal", choices=activity.MODELS),
+        Field("model", "Activity model", CHOICE, default="ideal", choices=activity.MODELS), PARAMS_FIELD,
     ]),
     Calc("k", REACT, "Equilibrium constant K(T), ΔG°, ΔH° of a reaction", chemical_equilibrium.equilibrium_constant, [
         Field("reaction", "Reaction (e.g. N2 + 3 H2 -> 2 NH3)", TEXT), _q("T_", "T", TEMPERATURE),

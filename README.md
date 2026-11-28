@@ -47,6 +47,7 @@ Run `thermo-utils` to open the interactive menu (Esc exits), or run a calculatio
 thermo-utils delta water T1=25C P1=1atm T2=300C P2=20bar
 thermo-utils delta nitrogen T1=300 P1=1bar V2=3117cm3/mol dS=0
 thermo-utils pump water T1=25C P1=1atm P2=50bar efficiency=0.75 flow=10kg/s
+thermo-utils heat-exchanger water water Th1=30C xh1=1 Th2=30C xh2=0 Tc1=14C Tc2=22C U=2100 A=45
 thermo-utils otto T1=27C P1=100kPa r=8 q_in=800
 thermo-utils otto T1=27C P1=100kPa r=8 q_in=800 --details   # every step of the calculation
 thermo-utils brayton T1=300 T3=1300 w_net=300 eta_c=0.85     # finds rp
@@ -87,6 +88,7 @@ thermo-utils config         # create, check and locate the settings file
 
 **Flow devices**
 - One-step devices: compressor, pump, turbine and valve, with efficiency and power for a given flow
+- Heat exchanger (counter- or parallel-flow) with real properties and phase change: energy balance solved for the missing flow or temperature, LMTD and UA (area from U), effectiveness-NTU, entropy generation, internal temperature-cross check and T-Q̇ profile; outlets from U and A (rating)
 
 **Cycles**
 - Otto, Diesel, Brayton, Rankine and vapor-compression refrigeration (or heat pump), solved from any consistent data: known data in, the rest out, in either direction (e.g. r from η, T3 from q_in, rp from w_net, ṁ from the power)

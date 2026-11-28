@@ -503,7 +503,7 @@ def _sle_diagram(subs, xe, Te, a, b, liquidus):
         legend=[("accent", f"solid {subs[0].name}"), ("alt", f"solid {subs[1].name}"), ("dim-dashed", "eutectic")])
 
 
-def solubility(solute, T_, solvent=None, model="ideal"):
+def solubility(solute, T_, solvent=None, model="ideal", params=None):
     subs = [solute] + ([solvent] if solvent else [])
     if not (solute.Tm and solute.Hfus):
         raise ValueError(f"No melting data for {solute.name}")
@@ -517,7 +517,7 @@ def solubility(solute, T_, solvent=None, model="ideal"):
         log.line("x = exp({}) = {}", num(math.log(ideal)), num(ideal))
     rows = res.section("Result", [row("Ideal solubility x", num(min(ideal, 1)))])
     if solvent and model != "ideal":
-        ge = activity.GEModel(subs, model)
+        ge = activity.GEModel(subs, model, params)
         f = lambda x: math.log(x * ge.gammas(T_, [x, 1 - x])[0]) - math.log(ideal)
         try:
             x = brentq(f, 1e-10, 1 - 1e-10)
@@ -541,10 +541,10 @@ def solubility(solute, T_, solvent=None, model="ideal"):
 
 # Osmotic pressure
 
-def osmotic(solvent, solute, T_, x_solute, model="ideal"):
+def osmotic(solvent, solute, T_, x_solute, model="ideal", params=None):
     subs = [solvent, solute]
     xs = [1 - x_solute, x_solute]
-    ge = activity.GEModel(subs, model)
+    ge = activity.GEModel(subs, model, params)
     g = ge.gammas(T_, xs)[0]
     Vl = solvent.Vliq(T_)
     Pi = -R * T_ / Vl * math.log(xs[0] * g)

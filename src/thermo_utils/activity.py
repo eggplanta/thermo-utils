@@ -22,6 +22,23 @@ MODELS = {
 }
 
 
+PARAMETRIC = ("nrtl", "wilson", "margules", "vanlaar")
+
+
+def needs_params(subs, name):
+    try:
+        GEModel(subs, name)
+        return False
+    except ValueError:
+        return True
+
+
+def available(subs, with_params=True):
+    """Models that work for these substances."""
+    ok = lambda name: not needs_params(subs, name) or (with_params and len(subs) == 2 and name in PARAMETRIC)
+    return {name: label for name, label in MODELS.items() if ok(name)}
+
+
 class GEModel:
     """Activity coefficients for a fixed set of components."""
 

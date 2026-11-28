@@ -14,7 +14,7 @@ from rich.markup import escape
 from rich.text import Text
 
 from thermo_utils import (
-    __version__, calcs, cycles, drawing, equations, plots, properties, psychro, settings, steplog, substances,
+    __version__, activity, calcs, cycles, drawing, equations, hx, plots, properties, psychro, settings, steplog, substances,
 )
 from thermo_utils.result import harmonize
 from thermo_utils.units import num
@@ -495,6 +495,21 @@ def _ask_cycle(calc):
     return kwargs | form(rows)
 
 
+def _ask_hx(calc):
+    f = {x.name: x for x in calc.fields}
+    kwargs = {}
+    for key in ("hot", "cold"):
+        while True:
+            text = ask_text(f"  {key.capitalize()} fluid [dim]\\[default water][/dim]") or "water"
+            try:
+                kwargs[key] = calcs.parse_value(f[key], text)
+                break
+            except Exception as exc:
+                console.print(f"  [red]{exc}[/red]")
+    kwargs["flow"] = _prompt_field(f["flow"])
+    return kwargs | form([(key, desc, f[key]) if key else (None, desc, None) for key, desc in hx.FORM])
+
+
 def _ask_humid(calc):
     f = {x.name: x for x in calc.fields}
     kwargs = {}
@@ -641,6 +656,34 @@ CUSTOM = {
 }
 CUSTOM.update({c.id: _ask_cycle for c in calcs.CALCS if c.group == calcs.CYCLES})
 CUSTOM.update({c.id: _ask_humid for c in calcs.CALCS if c.group == calcs.HUMID})
+CUSTOM["heat-exchanger"] = lambda calc: _ask_hx(calc)
+
+
+def _ask_fields(calc):
+    """Ask each field; activity models are limited to those that work."""
+    kwargs = {}
+    has_params = any(f.name == "params" for f in calc.fields)
+    for f in calc.fields:
+        if f.name == "params":
+            model = kwargs.get("model")
+            if model is None or not activity.needs_params(_ge_subs(kwargs), model):
+                continue
+            f = replace(f, optional=False)
+        elif f.name == "model" and f.choices is activity.MODELS:
+            subs = _ge_subs(kwargs)
+            if not subs or kwargs.get("method") in ("raoult", "phi-phi"):
+                continue
+            choices = activity.available(subs, has_params)
+            f = replace(f, choices=choices, default=f.default if f.default in choices else "ideal")
+        kwargs[f.name] = _prompt_field(f)
+    return kwargs
+
+
+def _ge_subs(kwargs):
+    if kwargs.get("subs"):
+        return kwargs["subs"]
+    subs = [kwargs.get(k) for k in ("solvent", "solute")]
+    return subs if all(subs) else None
 
 
 def run_interactive(calc):
@@ -653,7 +696,7 @@ def run_interactive(calc):
     if calc.id in CUSTOM:
         kwargs = CUSTOM[calc.id](calc)
     else:
-        kwargs = {f.name: _prompt_field(f) for f in calc.fields}
+        kwargs = _ask_fields(calc)
     console.print()
     with console.status("Calculating..."):
         res = compute(calc, kwargs)
@@ -951,9 +994,13 @@ def run(
             loose.append(item)
     for f in calc.fields:
         key = f.name.rstrip("_").lower()
-        if loose and f.type == calcs.CHOICE and key not in given and loose[0].lower() in f.choices:
-            given[key] = loose.pop(0)
-        if loose and f.type in (calcs.SUBSTANCE, calcs.SUBSTANCES) and key not in given:
+        hit = next((x for x in loose if x.lower() in (f.choices or {})), None)
+        if f.type == calcs.CHOICE and key not in given and hit:
+            given[key] = hit
+            loose.remove(hit)
+    for f in calc.fields:
+        key = f.name.rstrip("_").lower()
+        if loose and f.type in (calcs.SUBSTANCES, calcs.SUBSTANCE) and key not in given:
             given[key] = loose.pop(0)
     if loose:
         console.print(f"[red]Unexpected input '{loose[0]}'. Use key=value.[/red]")
