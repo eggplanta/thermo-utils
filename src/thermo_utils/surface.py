@@ -1,7 +1,6 @@
-"""Surface phenomena: surface tension, Kelvin, adsorption, micelles."""
+"""Surface phenomena: surface tension and adsorption isotherms."""
 
 import csv
-import math
 import re
 
 import numpy as np
@@ -12,7 +11,6 @@ from thermo_utils.result import Result, row
 from thermo_utils.steplog import K, q
 from thermo_utils.units import mark_given, num
 from thermo_utils.units import (
-    CONCENTRATION as C, LENGTH as L, MOLAR_ENERGY as E, MOLAR_ENTROPY as S, MOLAR_VOLUME as V,
     PRESSURE as P, SURFACE_TENSION as ST, TEMPERATURE as T, DEFAULT_INPUT_UNITS, R, display, fmt, from_si,
     to_si,
 )
@@ -143,46 +141,6 @@ def surface_tension(sub, T_):
     return res
 
 
-# Kelvin equation
-
-def kelvin(sub, T_, r, kind="drop"):
-    s0 = sigma(sub, T_)
-    Vl = sub.Vliq(T_)
-    Ps = sub.Psat(T_)
-    sign = 1 if kind == "drop" else -1
-    ratio = math.exp(sign * 2 * s0 * Vl / (r * R * T_))
-    res = Result(f"Kelvin equation: {sub.name}")
-    if log.on():
-        log.step("Data at T = {}", q(T_, T))
-        log.line("σ = {}, V_liq = {}, Psat (flat) = {}", q(s0, ST), q(Vl, V), q(Ps, P))
-        log.step("Kelvin equation for a {}", "drop (convex, + sign)" if sign > 0 else "bubble/capillary (concave, − sign)")
-        log.line("ln(P/Psat) = {}2σV/(rRT) = {}2 × {} × {} / ({} × {} × {})", "+" if sign > 0 else "−", "+" if sign > 0 else "−",
-                 f"{num(s0)} N/m", f"{num(Vl)} m³/mol", f"{num(r)} m", R, f"{num(T_)} K")
-        log.line("ln(P/Psat) = {}  ->  P/Psat = {}", num(math.log(ratio)), num(ratio))
-        log.line("P = {} × {} = {}", q(Ps, P), num(ratio), q(Ps * ratio, P))
-    res.section(f"{'Drop (convex)' if sign > 0 else 'Bubble or capillary (concave)'}, r = {fmt(r, L, 'nm')}", [
-        row("σ", s0, ST), row("V liquid", Vl, V), row("Psat (flat surface)", Ps, P),
-        row("P/Psat", num(ratio)), row("P (curved surface)", Ps * ratio, P),
-    ])
-
-    def plot():
-        import matplotlib.pyplot as plt
-        fig, ax = plt.subplots(figsize=(8, 5))
-        rs = np.logspace(-9, -6, 200)
-        k = 2 * s0 * Vl / (R * T_)
-        ax.semilogx(rs * 1e9, np.exp(k / rs), label="drop")
-        ax.semilogx(rs * 1e9, np.exp(-k / rs), label="bubble / capillary")
-        ax.plot(r * 1e9, ratio, "ko")
-        ax.axhline(1, color="gray", lw=0.8)
-        ax.set_xlabel("r (nm)"); ax.set_ylabel("P/Psat"); ax.grid(alpha=0.3, which="both"); ax.legend()
-        ax.set_title(f"Kelvin equation: {sub.name} at {T_:.2f} K")
-        fig.tight_layout()
-        return fig
-
-    res.plot, res.plot_name = plot, f"kelvin_{sub.name}"
-    return res
-
-
 # Adsorption
 
 def _q_to_mol_per_kg(value, unit):
@@ -306,129 +264,3 @@ def _cross_section(adsorbate, T_, given):
         return 1.091 * (adsorbate.Vliq(T_) / NA) ** (2 / 3)
     except Exception:
         return None
-
-
-def szyszkowski(c, s0, gm, K, n_rt):
-    return s0 - n_rt * gm * np.log(1 + K * c)
-
-
-def gibbs_adsorption(path, T_, n=1):
-    c, s = read_columns(path, [C, ST])
-    nrt = n * R * T_
-    s_max = s.max()
-    f = lambda cc, s0, gm, K: szyszkowski(cc, s0, gm, K, nrt)
-    (s0, gm, K), _ = curve_fit(f, c, s, p0=[s_max, 3e-6, 1 / np.median(c[c > 0])], maxfev=20000)
-    res = Result("Gibbs adsorption isotherm")
-    if log.on():
-        log.step("Data read from {} ({} points)", path, len(c))
-        log.line("Gibbs: Γ = −(1/nRT) dσ/d ln c, n = {}; nRT = {} J/mol", n, num(nrt))
-        log.line("Szyszkowski fit σ = σ0 − nRT·Γmax·ln(1 + K·c) (nonlinear least squares), then Γ = Γmax·K·c/(1 + K·c)")
-        log.line("σ0 = {}, Γmax = {} mol/m², K = {} m³/mol, R² = {}", q(s0, ST), num(gm), num(K),
-                 num(_r2(s, f(c, s0, gm, K))))
-        log.line("Area per molecule = 1/(Γmax·NA) = {} nm²", num(1 / (gm * NA) * 1e18))
-        log.table(["c", "σ data", "σ fit", "Γ (mol/m²)"],
-                  [[q(ci, C), q(si, ST), q(f(ci, s0, gm, K), ST), num(gm * K * ci / (1 + K * ci))] for ci, si in zip(c, s)])
-    res.section("Szyszkowski fit  σ = σ0 − nRT·Γmax·ln(1 + K·c)", [
-        row("σ0", s0, ST), row("Γmax", f"{num(gm)} mol/m²"),
-        row("Area per molecule at Γmax", f"{num(1 / (gm * NA) * 1e18)} nm²"),
-        row("K", f"{num(K * 1e3)} L/mol"), row("R²", num(_r2(s, f(c, s0, gm, K)))),
-    ])
-    res.section("Surface excess at each point  Γ = Γmax·K·c/(1 + K·c)", [
-        row(f"c = {fmt(ci, C)}", f"σ = {fmt(si, ST)}   Γ = {num(gm * K * ci / (1 + K * ci))} mol/m²")
-        for ci, si in zip(c, s)
-    ])
-
-    def plot():
-        import matplotlib.pyplot as plt
-        fig, ax = plt.subplots(figsize=(8, 5))
-        cu, su = display.concentration, display.surface_tension
-        grid = np.linspace(0, c.max() * 1.05, 300)
-        ax.plot([from_si(v, cu, C) for v in c], [from_si(v, su, ST) for v in s], "ko", label="data")
-        ax.plot([from_si(v, cu, C) for v in grid], [from_si(v, su, ST) for v in f(grid, s0, gm, K)], label="fit")
-        ax2 = ax.twinx()
-        ax2.plot([from_si(v, cu, C) for v in grid], 1e6 * gm * K * grid / (1 + K * grid), "--", color="gray",
-                 label="Γ (right axis)")
-        ax2.set_ylabel("Γ (µmol/m²)"); ax2.grid(False); ax2.spines["right"].set_visible(True)
-        ax.set_xlabel(f"c ({cu})"); ax.set_ylabel(f"σ ({su})"); ax.grid(alpha=0.3)
-        h1, l1 = ax.get_legend_handles_labels(); h2, l2 = ax2.get_legend_handles_labels()
-        ax.legend(h1 + h2, l1 + l2, loc="center right")
-        ax.set_title(f"Gibbs adsorption at {T_:.2f} K")
-        fig.tight_layout()
-        return fig
-
-    res.plot, res.plot_name = plot, "gibbs_adsorption"
-    return res
-
-
-# Micelles
-
-def _cmc_breakpoint(c, s):
-    lc = np.log(c)
-    order = np.argsort(lc)
-    lc, s = lc[order], s[order]
-    best = None
-    for k in range(2, len(lc) - 1):
-        a = np.polyfit(lc[:k], s[:k], 1)
-        b = np.polyfit(lc[k:], s[k:], 1) if len(lc) - k > 1 else (0.0, s[k:].mean())
-        sse = np.sum((np.polyval(a, lc[:k]) - s[:k]) ** 2) + np.sum((np.polyval(b, lc[k:]) - s[k:]) ** 2)
-        if best is None or sse < best[0]:
-            best = (sse, a, b)
-    _, a, b = best
-    return math.exp((b[1] - a[1]) / (a[0] - b[0])), a, b
-
-
-def micelles(T_, cmc=None, beta=0.0, T2=None, cmc2=None, path=None):
-    from thermo_utils import substances
-    water = substances.get("water")
-    data = None
-    if path:
-        c, s = read_columns(path, [C, ST])
-        cmc, a, b = _cmc_breakpoint(c[c > 0], s[c > 0])
-        data = (c[c > 0], s[c > 0], a, b)
-    if cmc is None:
-        raise ValueError("Give the CMC or a CSV file with c and σ.")
-    cw = 1 / water.Vliq(T_)
-    x = cmc / (cmc + cw)
-    dG = (1 + beta) * R * T_ * math.log(x)
-    res = Result("Micellization")
-    if log.on():
-        if data:
-            log.step("CMC from σ vs ln c: best split into two straight lines (least squares)")
-            a, b = data[2], data[3]
-            log.line("Below CMC: σ = {} ln c + {};  above: σ = {} ln c + {}", num(a[0]), num(a[1]), num(b[0]), num(b[1]))
-            log.line("Intersection: ln CMC = (b1 − a1)/(a0 − b0) -> CMC = {}", q(cmc, C))
-        log.step("Standard Gibbs energy of micellization (phase-separation model)")
-        log.line("Water molar concentration = 1/V_liq = {} mol/m³", num(cw))
-        log.line("x_CMC = CMC/(CMC + c_water) = {}", num(x))
-        log.line("ΔG°mic = (1 + β)RT ln x_CMC = {} × {} × {} × ln({}) = {}", f"{1 + beta:g}", R, f"{num(T_)} K", num(x), q(dG, E))
-    rows = res.section(f"At {fmt(T_, T)}", [
-        row("CMC", cmc, C), row("x_CMC (mole fraction)", num(x)),
-        row("Counterion binding β", f"{beta:g}"), row("ΔG°mic", dG, E),
-    ])
-    if T2 is not None and cmc2 is not None:
-        x2 = cmc2 / (cmc2 + 1 / water.Vliq(T2))
-        dH = (1 + beta) * R * math.log(x2 / x) / (1 / T2 - 1 / T_)
-        log.step("Temperature dependence (two CMC values)")
-        log.line("ΔH°mic = (1 + β)R ln(x2/x1)/(1/T2 − 1/T1) = {}", q(dH, E))
-        log.line("ΔS°mic = (ΔH° − ΔG°)/T = {}", q((dH - dG) / T_, S))
-        rows += [row("ΔH°mic", dH, E), row("ΔS°mic", (dH - dG) / T_, S)]
-    if data:
-        res.notes.append("CMC from the break point of σ vs ln c (two straight lines).")
-
-        def plot():
-            import matplotlib.pyplot as plt
-            c_, s_, a, b = data
-            fig, ax = plt.subplots(figsize=(8, 5))
-            su = display.surface_tension
-            ax.semilogx(c_, [from_si(v, su, ST) for v in s_], "ko", label="data")
-            for line in (a, b):
-                g = np.logspace(math.log10(c_.min()), math.log10(c_.max()), 100)
-                ax.semilogx(g, [from_si(v, su, ST) for v in np.polyval(line, np.log(g))], "--")
-            ax.axvline(cmc, color="gray", lw=0.8, label=f"CMC = {fmt(cmc, C)}")
-            ax.set_xlabel("c (mol/m³)"); ax.set_ylabel(f"σ ({su})"); ax.grid(alpha=0.3, which="both"); ax.legend()
-            ax.set_title("Critical micelle concentration")
-            fig.tight_layout()
-            return fig
-
-        res.plot, res.plot_name = plot, "cmc"
-    return res

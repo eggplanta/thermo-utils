@@ -111,9 +111,7 @@ thermo-utils config         # create, check and locate the settings file
 
 **Surface phenomena**
 - Surface tension σ(T) with surface entropy and enthalpy (databank, Brock-Bird, parachor)
-- Kelvin equation (vapor pressure over drops, bubbles and pores)
 - Adsorption isotherms (Langmuir, Freundlich, BET with specific surface area) fitted to CSV data
-- Gibbs adsorption isotherm (Szyszkowski fit), micellization (CMC, ΔG°mic)
 
 ## Settings file
 

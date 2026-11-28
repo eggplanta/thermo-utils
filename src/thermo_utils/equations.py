@@ -132,20 +132,11 @@ BY_CALC = {
         "Brock-Bird: σ = Pc^(2/3)·Tc^(1/3)·Q·(1 − Tr)^(11/9)",
         "Macleod-Sugden: σ^(1/4) = [P](ρ_liq − ρ_vap)",
     ],
-    "kelvin": ["ln(P/Psat) = ±2σV_liq/(rRT)   (+ drop, − bubble or capillary)"],
     "adsorption": [
         "Langmuir: q = qm·K·P/(1 + K·P)",
         "Freundlich: q = K·P^(1/n)",
         "BET: q = qm·c·x/[(1 − x)(1 − x + c·x)]     x = P/P0",
         "Area = qm·N_A·a_m     a_m = 1.091(V_liq/N_A)^(2/3)",
-    ],
-    "gibbs-adsorption": [
-        "Γ = −(1/nRT)·dσ/d ln c",
-        "Szyszkowski: σ = σ0 − nRT·Γmax·ln(1 + K·c)     Γ = Γmax·K·c/(1 + K·c)",
-    ],
-    "micelles": [
-        "ΔG°mic = (1 + β)·RT·ln x_CMC",
-        "ΔH°mic = (1 + β)·R·d ln x_CMC/d(1/T)     ΔS°mic = (ΔH°mic − ΔG°mic)/T",
     ],
 }
 

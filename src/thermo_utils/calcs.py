@@ -8,7 +8,7 @@ from thermo_utils import (
 )
 from thermo_utils.pure import MODELS
 from thermo_utils.units import (
-    CONCENTRATION, DIMENSIONLESS, LENGTH, MASS_FLOW, MOLAR_ENERGY, MOLAR_ENTROPY, MOLAR_FLOW, PRESSURE,
+    DIMENSIONLESS, MASS_FLOW, MOLAR_ENERGY, MOLAR_ENTROPY, MOLAR_FLOW, PRESSURE,
     SPECIFIC_ENTROPY, TEMPERATURE, MOLAR_VOLUME,
     _NUMBER, display, mark_given, parse_quantity, set_molar_mass,
 )
@@ -255,11 +255,6 @@ CALCS += [
     Calc("surface-tension", SURF, "Surface tension σ(T), surface entropy and enthalpy", surface.surface_tension, [
         _sub(), _q("T_", "T", TEMPERATURE),
     ]),
-    Calc("kelvin", SURF, "Kelvin equation: vapor pressure over a curved surface", surface.kelvin, [
-        _sub(), _q("T_", "T", TEMPERATURE), _q("r", "Radius of curvature", LENGTH),
-        Field("kind", "Surface", CHOICE, default="drop", choices={
-            "drop": "drop (convex)", "bubble": "bubble or capillary (concave)"}),
-    ]),
     Calc("adsorption", SURF, "Adsorption isotherms: Langmuir, Freundlich, BET (CSV)", surface.adsorption, [
         Field("path", "CSV file with columns P, q", TEXT),
         Field("model", "Model", CHOICE, default="all", choices={
@@ -268,17 +263,6 @@ CALCS += [
         _q("T_", "T (for BET)", TEMPERATURE, True), _q("P0", "P0 (optional, BET)", PRESSURE, True),
         Field("cross_section", "Area per molecule in nm² (optional, BET)", NUMBER, optional=True),
     ], "Header like 'P (kPa),q (mmol/g)' sets the units."),
-    Calc("gibbs-adsorption", SURF, "Gibbs adsorption isotherm (surface excess from σ vs c)", surface.gibbs_adsorption, [
-        Field("path", "CSV file with columns c, σ", TEXT), _q("T_", "T", TEMPERATURE),
-        Field("n", "n (1 nonionic, 2 ionic 1:1 without salt)", INTEGER, default=1),
-    ], "Header like 'c (mmol/L),sigma (mN/m)' sets the units."),
-    Calc("micelles", SURF, "Micellization: CMC and ΔG°mic", surface.micelles, [
-        _q("T_", "T", TEMPERATURE), _q("cmc", "CMC (or leave empty and give a CSV)", CONCENTRATION, True),
-        Field("beta", "Counterion binding β (0 for nonionic)", NUMBER, default=0.0),
-        _q("T2", "Second T (optional, for ΔH)", TEMPERATURE, True),
-        _q("cmc2", "CMC at the second T (optional)", CONCENTRATION, True),
-        Field("path", "CSV file with columns c, σ (optional)", TEXT, optional=True),
-    ]),
 ]
 
 
