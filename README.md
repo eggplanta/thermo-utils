@@ -64,7 +64,7 @@ thermo-utils config         # create, check and locate the settings file
 ```
 
 - **Units:** type them with the value (`25C`, `10atm`, `300cm3/mol`, `5kmol/h`), with no space so no quotes are needed. Without a unit the defaults are K, bar, cm³/mol and J/mol. Output units can be changed in the menu (`u`) or in the [settings file](#settings-file), both kept for later sessions, or for one run with `--T-unit`, `--P-unit`, `--E-unit`, `--V-unit`.
-- **Substances:** English names, formulas or CAS numbers (`water`, `H2O`, `7732-18-5`), right after the calculation name. `air` is available as a pseudo-pure fluid (reference EOS of Lemmon et al., 2000). Mixtures are comma separated (`ethanol,water`).
+- **Substances:** English names, formulas or CAS numbers (`water`, `H2O`, `7732-18-5`), right after the calculation name. `air` is available as a pseudo-pure fluid (reference EOS of Lemmon et al., 2000), and so are the refrigerant blends R410A, R404A, R407C and R507A. Refrigerants can also be typed by R number (`R-32`, `R744`, `R290`). Mixtures are comma separated (`ethanol,water`).
 - **Devices:** `pump`, `compressor`, `turbine` and `valve` are shortcuts for `device kind=...`.
 - **Cycles:** give any values that fix the cycle (states `T1`...`P4`, `v`, `u`, `h`, `s`, `x`, or results like `r`, `rp`, `rc`, `q_in`, `w_net`, `eta`, `mep`, `Wdot`) and the rest is solved. Energies default to kJ/kg; `--E-unit kJ/mol` (and `--V-unit L/mol`) shows them per mole. Gas cycles use Cp(T); `k=1.4` switches to the cold air-standard.
 - **Plot and Table (CSV):** after a result, **Plot** saves a PNG (with a CSV of the curve data) and **Table (CSV)** saves every computed value as `section, item, quantity, value, unit`; both open in the default app. Plots exist for cycles, devices, property changes, phase diagrams and the other calculations where a curve helps. Files go to the cache folder (`~/.cache/thermo-utils`, or `$THERMO_UTILS_PLOTS`), which keeps the latest 100. On the command line: `--plot`, `--csv`, and `--no-open` to only save.
@@ -93,7 +93,7 @@ thermo-utils config         # create, check and locate the settings file
 - Isentropic efficiencies of compressor, turbine, pump and piston strokes; engine power from displacement and rpm
 - Single steps (compression, expansion, heating at constant v or P, compressor, turbine, pump, boiler, condenser) solved the same way
 - Air with Cp(T) on the air-table reference or the cold air-standard (constant k); Rankine with the reference EOS of water (or another fluid)
-- Refrigeration with any refrigerant that has a reference EOS (R134a by default, ammonia, propane...): superheat and subcooling, COP of refrigerator, heat pump and Carnot, capacity in kW or tons of refrigeration (`TR`), T-s and P-h diagrams
+- Refrigeration with any refrigerant that has a reference EOS (R134a by default, ammonia, propane...) or the blends R410A, R404A, R407C and R507A (temperature glide noted): superheat and subcooling, COP of refrigerator, heat pump and Carnot, capacity in kW or tons of refrigeration (`TR`), T-s and P-h diagrams
 - P-v or T-s diagram of the cycle (with the saturation dome for Rankine) and the equipment sketch, drawn in the terminal
 
 **Humid air**

@@ -235,9 +235,34 @@ class _PseudoPure(Substance):
                              f"critical point {self.Tc:.5g} K).")
 
 
+BLENDS = {
+    "R404A": ("R125/R143a/R134a", "44/52/4"), "R407C": ("R32/R125/R134a", "23/25/52"),
+    "R410A": ("R32/R125", "50/50"), "R507A": ("R125/R143a", "50/50"),
+}
+
+
 @lru_cache(maxsize=1)
 def air():
-    fluid = "Air"
+    return _pseudo_pure(
+        "Air", "air", AIR_CAS, "N2/O2/Ar", 0.0,
+        "Air is treated as a pseudo-pure fluid (N2 0.7812, O2 0.2096, Ar 0.0092; reference EOS of "
+        "Lemmon et al., 2000). Below the critical point, liquid and vapor values are approximate: "
+        "the bubble and dew points of real air differ by about 3 K.")
+
+
+@lru_cache(maxsize=8)
+def blend(fluid):
+    parts, mass = BLENDS[fluid]
+    bub = CP.PropsSI("T", "P", 101325, "Q", 0, fluid)
+    glide = CP.PropsSI("T", "P", 101325, "Q", 1, fluid) - bub
+    kind = "near-azeotropic" if glide < 1 else f"zeotropic, temperature glide ≈ {glide:.2g} K at 1 atm"
+    return _pseudo_pure(
+        fluid, fluid, fluid, parts, None,
+        f"{fluid} is a refrigerant blend ({parts}, {mass} % by mass; {kind}) treated as a pseudo-pure fluid "
+        "(CoolProp). Saturation pressure and Tb are bubble-point values.")
+
+
+def _pseudo_pure(fluid, name, cas, formula, Hf, note):
     Tc, Pc = CP.PropsSI("Tcrit", fluid), CP.PropsSI("pcrit", fluid)
     Vc = 1 / CP.PropsSI("rhomolar_critical", fluid)
     empty = [None]
@@ -247,14 +272,11 @@ def air():
     )
     consts = SimpleNamespace(Parachors=empty, UNIFAC_Dortmund_groups=[{}], Hcs=empty, Hcs_lower=empty)
     return _PseudoPure(
-        name="air", cas=AIR_CAS, formula="N2/O2/Ar", MW=CP.PropsSI("molar_mass", fluid) * 1000,
+        name=name, cas=cas, formula=formula, MW=CP.PropsSI("molar_mass", fluid) * 1000,
         Tc=Tc, Pc=Pc, Vc=Vc, Zc=Pc * Vc / (R_GAS * Tc), omega=CP.PropsSI("acentric", fluid),
         Tb=CP.PropsSI("T", "P", 101325, "Q", 0, fluid), Tm=CP.PropsSI("Ttriple", fluid), Hfus=None,
-        Hf=0.0, Gf=None, S0=None, Hf_std=None, phase_std="g", dipole=0.0, r=None, q=None, unifac_groups={},
-        coolprop=fluid, _constants=consts, _correlations=corrs,
-        note=("Air is treated as a pseudo-pure fluid (N2 0.7812, O2 0.2096, Ar 0.0092; reference EOS of "
-              "Lemmon et al., 2000). Below the critical point, liquid and vapor values are approximate: "
-              "the bubble and dew points of real air differ by about 3 K."),
+        Hf=Hf, Gf=None, S0=None, Hf_std=None, phase_std="g", dipole=0.0, r=None, q=None, unifac_groups={},
+        coolprop=fluid, _constants=consts, _correlations=corrs, note=note,
     )
 
 
@@ -278,7 +300,7 @@ def _lookup(query):
         return air(), None
     cas = _refrigerants().get(_r_key(ident) or "")
     if cas and cas.endswith(".PPF"):
-        raise ValueError(f"{query} is a refrigerant blend; blends are not supported yet.")
+        return blend(cas[:-4]), None
     if cas:
         try:
             search_chemical(cas)

@@ -157,7 +157,10 @@ class Fluid:
         liq, vap = [], []
         for t in np.linspace(t_lo, t_hi, n):
             for q_, side in ((0, liq), (1, vap)):
-                AS.update(self.CP.QT_INPUTS, q_, t)
+                try:
+                    AS.update(self.CP.QT_INPUTS, q_, t)
+                except ValueError:
+                    continue
                 side.append((AS.hmass(), AS.p()) if ph else (1 / AS.rhomass(), AS.p()) if pv else (AS.smass(), t))
         return liq + vap[::-1]
 
@@ -954,6 +957,12 @@ def run(model_id, sub, k=None, cp=None, steps=False, **given):
         s1 = f"{num(out['dT_sh'])} K superheated vapor" if out["dT_sh"] else "saturated vapor"
         s3 = f"{num(out['dT_sc'])} K subcooled liquid" if out["dT_sc"] else "saturated liquid"
         res.notes.append(f"State 1 is {s1} at P1 and state 3 is {s3} at P2.")
+        ge, gc = (fluid.sat(out[k], 1)["T"] - fluid.sat(out[k], 0)["T"] for k in ("P1", "P2"))
+        if max(ge, gc) > 0.1:
+            kind = "Zeotropic" if max(ge, gc) >= 1 else "Near-azeotropic"
+            res.notes.append(f"{kind} blend: temperature glide {ge:.2g} K in the evaporator and {gc:.2g} K in the "
+                             "condenser. T_evap is the dew point (evaporator outlet) and T_cond the bubble point "
+                             "(condenser outlet).")
     if model.id == "pump" and not any(key.endswith("1") and key != "P1" for key in given):
         res.notes.append("Pump inlet taken as saturated liquid at P1.")
     if model.id == "condenser" and not any(key.endswith("2") for key in given):
