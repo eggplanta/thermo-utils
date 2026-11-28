@@ -142,6 +142,8 @@ specific_energy = "kJ/kg"
 power = "kW"
 min_decimals = 4          # 2 to 8; results keep 6 significant figures
 typed_units_win = true    # units you type are kept in the results
+hide_logo = true          # no logo when the menu opens
+hide_equations = true     # no Equations box in the results
 ```
 
 Keys left out keep their default. Energy units set the family (J or cal) and the basis (per mol or per kg); the k prefix is picked per result from the size of the values.
@@ -159,6 +161,8 @@ temperature = "K"
 temperature = "°C"
 pressure = "kPa"
 ```
+
+`hide_equations` works per calculation too, e.g. `[display.otto]` with `hide_equations = true` hides the equations of the Otto cycle only. `hide_logo` goes only in `[display]`.
 
 When several settings apply, the first one in this list wins:
 

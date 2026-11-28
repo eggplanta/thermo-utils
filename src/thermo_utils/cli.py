@@ -132,7 +132,7 @@ def show_result(res, calc=None):
     res.notes += list(substances.NOTICES.values())
     substances.NOTICES.clear()
     harmonize(res)
-    if calc is not None:
+    if calc is not None and not display.hide_equations:
         show_equations(equations.for_calc(calc.id, res.model) + res.equations)
     if res.pair:
         show_pair(res.pair)
@@ -800,7 +800,8 @@ def _set_decimals(n):
 
 
 def menu():
-    print_logo()
+    if not display.hide_logo:
+        print_logo()
     console.print(
         "\nInputs accept units: [b]25 C[/b], [b]10 atm[/b], [b]300[/b] (default unit). "
         "Substances by name, formula or CAS.\n"

@@ -151,6 +151,8 @@ class DisplayUnits:
     energy: str = "kJ"
     min_decimals: int = 4
     follow_typed: bool = True
+    hide_logo: bool = False
+    hide_equations: bool = False
 
     def unit_for(self, kind):
         return getattr(self, kind, "")

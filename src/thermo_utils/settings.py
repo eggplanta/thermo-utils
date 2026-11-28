@@ -12,8 +12,11 @@ from thermo_utils.units import display, label, units_of, _norm
 WARNINGS = []
 _PER_CALC = {}
 _FILE_KEYS = {"typed_units_win": "follow_typed"}
-_UNIT_KEYS = [k for k in display.__dataclass_fields__ if k not in ("min_decimals", "follow_typed")]
+_SWITCHES = ["typed_units_win", "hide_logo", "hide_equations"]
+_UNIT_KEYS = [k for k in display.__dataclass_fields__
+              if k not in ("min_decimals", "follow_typed", "hide_logo", "hide_equations")]
 _KEYS = _UNIT_KEYS + ["min_decimals", "typed_units_win"]
+_OPTIONAL = {"hide_logo": "no logo when the menu opens", "hide_equations": "no Equations box in the results"}
 
 HEADER = """\
 # thermo-utils settings
@@ -41,6 +44,9 @@ PER_CALC_EXAMPLE = """\
 # "display." is the calculation id shown by `thermo-utils list`
 # (refrigeration, rankine, brayton, delta, vle, device, ...).
 # Remove the # to use the examples:
+#
+# [display.otto]
+# hide_equations = true
 #
 # [display.refrigeration]
 # temperature = "°C"
@@ -107,9 +113,11 @@ def _check(values, where):
     out = {}
     for key, value in values.items():
         attr = _FILE_KEYS.get(key, key)
-        if key not in _KEYS:
+        if key not in _KEYS and key not in _OPTIONAL:
             WARNINGS.append(f"{where} {key}: unknown setting")
-        elif key == "typed_units_win":
+        elif key == "hide_logo" and where != "[display]":
+            WARNINGS.append(f"{where} {key}: only in [display]")
+        elif key in _SWITCHES:
             if isinstance(value, bool):
                 out[attr] = value
             else:
@@ -151,6 +159,8 @@ def template():
     width = max(len(f"{k} = {_value(k)}") for k in _KEYS)
     lines = [HEADER, "# Display units for every calculation", "[display]"]
     lines += [f"{f'{k} = {_value(k)}':<{width}}  # {_comment(k)}" for k in _KEYS]
+    lines += ["# Remove the # to apply:"]
+    lines += [f"{f'# {k} = true':<{width}}  # {text}" for k, text in _OPTIONAL.items()]
     return "\n".join(lines) + "\n\n" + PER_CALC_EXAMPLE
 
 
